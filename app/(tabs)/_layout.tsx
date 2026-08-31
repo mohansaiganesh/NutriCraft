@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { IconBowl, IconGear, IconPlate, IconHome } from '@/components/icons';
+import { IconCatalog, IconGear, IconBowl, IconHome } from '@/components/icons';
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -34,11 +34,11 @@ export default function TabsLayout() {
       />
       <Tabs.Screen
         name="foods"
-        options={{ title: 'Foods', tabBarIcon: ({ color }) => <IconBowl size={22} color={color} /> }}
+        options={{ title: 'Foods', tabBarIcon: ({ color }) => <IconCatalog size={22} color={color} /> }}
       />
       <Tabs.Screen
         name="meals"
-        options={{ title: 'Meals', tabBarIcon: ({ color }) => <IconPlate size={22} color={color} /> }}
+        options={{ title: 'Meals', tabBarIcon: ({ color }) => <IconBowl size={22} color={color} /> }}
       />
       <Tabs.Screen
         name="settings"

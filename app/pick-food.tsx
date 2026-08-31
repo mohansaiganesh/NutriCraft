@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { BackHandler, FlatList, Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { addLog, addMealItem, foodsQuery } from '@/db/queries';
+import { addLog, foodsQuery } from '@/db/queries';
+import { setPendingPick } from '@/lib/pendingPick';
 import { nutritionFor } from '@/lib/nutrition';
 import { num, titleCase } from '@/lib/format';
 import { mealLabel, type MealType } from '@/constants/meals';
@@ -40,8 +41,8 @@ export default function PickFood() {
     const g = num(grams);
     if (params.mode === 'log') {
       await addLog(params.date!, (params.mealType as MealType) ?? 'snack', selected.id, g);
-    } else if (params.mode === 'mealItem') {
-      await addMealItem(params.mealId!, selected.id, g);
+    } else if (params.mode === 'mealDraft') {
+      setPendingPick({ food: selected, grams: g });
     }
     router.back();
   };

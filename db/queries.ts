@@ -157,6 +157,15 @@ export function mealItemsQuery(mealId: string) {
     .orderBy(asc(foodItems.name));
 }
 
+/** All meal line items (any meal) joined to their food — for list-level totals. */
+export function allMealItemsQuery() {
+  return db
+    .select({ item: mealItems, food: foodItems })
+    .from(mealItems)
+    .innerJoin(foodItems, eq(mealItems.foodItemId, foodItems.id))
+    .where(eq(mealItems.deleted, false));
+}
+
 export async function getMeal(id: string) {
   const rows = await db.select().from(meals).where(eq(meals.id, id));
   return rows[0] ?? null;

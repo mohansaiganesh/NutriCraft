@@ -1,12 +1,12 @@
-import { useState } from 'react';
-import { FlatList, Pressable, Text, View } from 'react-native';
+import { useEffect, useState } from 'react';
+import { BackHandler, FlatList, Pressable, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { addLog, addMealItem, foodsQuery } from '@/db/queries';
 import { nutritionFor } from '@/lib/nutrition';
-import { num } from '@/lib/format';
+import { num, titleCase } from '@/lib/format';
 import { mealLabel, type MealType } from '@/constants/meals';
-import { Button, Card, cardShadow, Chip, EmptyState, Field, Muted } from '@/components/ui';
+import { Button, Card, cardShadow, Chip, DetailHeader, EmptyState, Field, Muted } from '@/components/ui';
 import { MacroChips } from '@/components/nutrition';
 import type { FoodItem } from '@/db/schema';
 
@@ -23,6 +23,18 @@ export default function PickFood() {
   const { data } = useLiveQuery(foodsQuery(q), [q]);
   const foods = (data ?? []) as FoodItem[];
 
+  // On Step 2, hardware/gesture back returns to the list instead of popping to Today.
+  useEffect(() => {
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (selected) {
+        setSelected(null);
+        return true; // handled → don't pop the screen
+      }
+      return false; // Step 1 → allow normal pop to Today
+    });
+    return () => sub.remove();
+  }, [selected]);
+
   const confirm = async () => {
     if (!selected) return;
     const g = num(grams);
@@ -38,7 +50,9 @@ export default function PickFood() {
   if (selected) {
     const preview = nutritionFor(selected, num(grams));
     return (
-      <View className="flex-1 bg-paper p-4 gap-3">
+      <View className="flex-1 bg-paper">
+        <DetailHeader title="Add food" onBack={() => setSelected(null)} />
+        <View className="p-4 gap-3">
         <Card>
           <Text className="font-display-sb text-[15px] text-ink" numberOfLines={1}>
             {selected.name.replace(/_/g, ' ')}
@@ -58,6 +72,7 @@ export default function PickFood() {
         ) : null}
         <Button label="Add" onPress={confirm} className="mt-1" />
         <Button label="Back to list" variant="secondary" onPress={() => setSelected(null)} />
+        </View>
       </View>
     );
   }
@@ -65,6 +80,7 @@ export default function PickFood() {
   // Step 1: search + pick a food.
   return (
     <View className="flex-1 bg-paper">
+      <DetailHeader title="Add food" />
       <FlatList
         data={foods}
         keyExtractor={(f) => f.id}
@@ -84,9 +100,14 @@ export default function PickFood() {
             className="rounded-2xl bg-card border border-hair p-[14px] mb-2 active:opacity-90"
             style={cardShadow}
           >
-            <Text className="font-body-sb text-ink" numberOfLines={1}>
-              {item.name.replace(/_/g, ' ')}
-            </Text>
+            <View className="flex-row items-baseline gap-1.5">
+              <Text className="font-body-sb text-ink shrink" numberOfLines={1}>
+                {item.name.replace(/_/g, ' ')}
+              </Text>
+              <Text className="font-body-sb text-[12px] text-ink3" numberOfLines={1}>
+                ({titleCase(item.brand || 'Generic')})
+              </Text>
+            </View>
           </Pressable>
         )}
       />

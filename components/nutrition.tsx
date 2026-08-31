@@ -8,18 +8,25 @@ import { fmt, money } from '@/lib/format';
 export function MacroChips({
   totals,
   currency = '$',
+  macrosOnly = false,
 }: {
   totals: NutritionTotals;
   currency?: string;
+  /** When true, omit calories + cost and show only the P/C/F/fiber macros. */
+  macrosOnly?: boolean;
 }) {
   return (
     <View className="flex-row flex-wrap gap-x-3 gap-y-1 mt-[6px]">
-      <Text className="font-body-b text-cal text-[13px]">{fmt(totals.calories)} kcal</Text>
+      {!macrosOnly && (
+        <Text className="font-body-b text-cal text-[13px]">{fmt(totals.calories)} kcal</Text>
+      )}
       <Text className="font-body-sb text-protein text-[13px]">P {fmt(totals.proteinG, 1)}g</Text>
       <Text className="font-body-sb text-carbs text-[13px]">C {fmt(totals.carbsG, 1)}g</Text>
       <Text className="font-body-sb text-fat text-[13px]">F {fmt(totals.fatG, 1)}g</Text>
       <Text className="font-body-sb text-fiber text-[13px]">Fib {fmt(totals.fiberG, 1)}g</Text>
-      <Text className="font-body-sb text-cost text-[13px]">{money(totals.cost, currency)}</Text>
+      {!macrosOnly && (
+        <Text className="font-body-sb text-cost text-[13px]">{money(totals.cost, currency)}</Text>
+      )}
     </View>
   );
 }

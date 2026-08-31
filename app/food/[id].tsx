@@ -1,16 +1,15 @@
 import { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
-import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { createFood, getFood, softDeleteFood, updateFood } from '@/db/queries';
 import { buildBasisFromLabel, type PerHundredBasis } from '@/lib/nutrition';
 import { fmt, money, num } from '@/lib/format';
-import { Button, Chip, Field, Muted } from '@/components/ui';
+import { Button, Chip, DetailHeader, Field, Muted } from '@/components/ui';
 
 type Mode = 'label' | 'per100';
 
 export default function FoodForm() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const navigation = useNavigation();
   const isNew = id === 'new';
 
   const [mode, setMode] = useState<Mode>('label');
@@ -28,7 +27,6 @@ export default function FoodForm() {
   const [price, setPrice] = useState('');
 
   useEffect(() => {
-    navigation.setOptions({ title: isNew ? 'Add food' : 'Edit food' });
     if (isNew) return;
     (async () => {
       const f = await getFood(id);
@@ -107,7 +105,9 @@ export default function FoodForm() {
   const nutrientHint = mode === 'label' ? '(as printed, per serving)' : '(per 100g)';
 
   return (
-    <ScrollView className="flex-1 bg-paper" contentContainerClassName="p-4 pb-16 gap-3">
+    <View className="flex-1 bg-paper">
+      <DetailHeader title={isNew ? 'Add food' : 'Edit food'} />
+      <ScrollView className="flex-1" contentContainerClassName="p-4 pb-16 gap-3">
       <Field label="Name" placeholder="e.g. whey_protein_on" value={name} onChangeText={setName} autoCapitalize="none" />
       <Field label="Brand (optional)" placeholder="Generic" value={brand} onChangeText={setBrand} />
       <Field label="Barcode (optional)" placeholder="UPC" value={barcode} onChangeText={setBarcode} keyboardType="numbers-and-punctuation" />
@@ -156,6 +156,7 @@ export default function FoodForm() {
 
       <Button label={isNew ? 'Add food' : 'Save changes'} onPress={save} className="mt-2" />
       {!isNew ? <Button label="Delete food" variant="danger" onPress={remove} /> : null}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }

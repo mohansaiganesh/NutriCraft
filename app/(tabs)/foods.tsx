@@ -3,7 +3,7 @@ import { FlatList, Pressable, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { foodsQuery, settingsQuery } from '@/db/queries';
-import { EmptyState, Fab, Field, Muted } from '@/components/ui';
+import { AppHeader, cardShadow, EmptyState, Fab, Field, Muted } from '@/components/ui';
 import { MacroChips } from '@/components/nutrition';
 import type { FoodItem } from '@/db/schema';
 
@@ -15,19 +15,26 @@ export default function FoodsScreen() {
   const foods = (data ?? []) as FoodItem[];
 
   return (
-    <View className="flex-1 bg-neutral-50 dark:bg-black">
+    <View className="flex-1 bg-paper">
       <FlatList
         data={foods}
         keyExtractor={(f) => f.id}
-        contentContainerClassName="p-4 pb-24"
+        contentContainerClassName="px-4 pb-24"
         ListHeaderComponent={
-          <Field
-            placeholder="Search foods…"
-            value={q}
-            onChangeText={setQ}
-            autoCapitalize="none"
-            className="mb-3"
-          />
+          <View>
+            <AppHeader
+              kicker="Catalog"
+              title="Foods"
+              right={<Text className="font-body-b text-[13px] text-ink3 pb-1">{foods.length} items</Text>}
+            />
+            <Field
+              placeholder="Search foods…"
+              value={q}
+              onChangeText={setQ}
+              autoCapitalize="none"
+              className="mb-3"
+            />
+          </View>
         }
         ListEmptyComponent={
           <EmptyState
@@ -38,16 +45,19 @@ export default function FoodsScreen() {
         renderItem={({ item }) => (
           <Pressable
             onPress={() => router.push({ pathname: '/food/[id]', params: { id: item.id } })}
-            className="rounded-2xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-4 mb-2 active:opacity-80"
+            className="rounded-3xl bg-card border border-hair p-4 mb-3 active:opacity-90"
+            style={cardShadow}
           >
-            <View className="flex-row justify-between items-center mb-1">
-              <Text className="font-semibold text-neutral-900 dark:text-neutral-50 flex-1 pr-2" numberOfLines={1}>
+            <View className="flex-row justify-between items-center">
+              <Text className="font-display-sb text-[16px] text-ink flex-1 pr-2" numberOfLines={1}>
                 {item.name.replace(/_/g, ' ')}
               </Text>
-              <Muted className="text-xs">per 100g</Muted>
+              <Text className="font-body-b text-[11px] text-ink3 bg-[#F1F5EE] border border-[#E6ECDF] px-[9px] py-[3px] rounded-full">
+                per 100g
+              </Text>
             </View>
             {item.brand && item.brand !== 'Generic' ? (
-              <Muted className="text-xs mb-1">{item.brand}</Muted>
+              <Muted className="text-[12px] mt-[2px]">{item.brand}</Muted>
             ) : null}
             <MacroChips
               totals={{

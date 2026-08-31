@@ -4,7 +4,7 @@ import { router, useLocalSearchParams, useNavigation } from 'expo-router';
 import { createFood, getFood, softDeleteFood, updateFood } from '@/db/queries';
 import { buildBasisFromLabel, type PerHundredBasis } from '@/lib/nutrition';
 import { fmt, money, num } from '@/lib/format';
-import { Button, Card, Chip, Field, Muted } from '@/components/ui';
+import { Button, Chip, Field, Muted } from '@/components/ui';
 
 type Mode = 'label' | 'per100';
 
@@ -107,13 +107,13 @@ export default function FoodForm() {
   const nutrientHint = mode === 'label' ? '(as printed, per serving)' : '(per 100g)';
 
   return (
-    <ScrollView className="flex-1 bg-neutral-50 dark:bg-black" contentContainerClassName="p-4 pb-16 gap-3">
+    <ScrollView className="flex-1 bg-paper" contentContainerClassName="p-4 pb-16 gap-3">
       <Field label="Name" placeholder="e.g. whey_protein_on" value={name} onChangeText={setName} autoCapitalize="none" />
       <Field label="Brand (optional)" placeholder="Generic" value={brand} onChangeText={setBrand} />
       <Field label="Barcode (optional)" placeholder="UPC" value={barcode} onChangeText={setBarcode} keyboardType="numbers-and-punctuation" />
 
       <View>
-        <Text className="text-sm font-medium text-neutral-600 dark:text-neutral-300 mb-1">Entry mode</Text>
+        <Text className="font-body-sb text-[12.5px] text-ink2 mb-[6px]">Entry mode</Text>
         <View className="flex-row">
           <Chip label="From label (per serving)" active={mode === 'label'} onPress={() => setMode('label')} />
           <Chip label="Per 100g" active={mode === 'per100'} onPress={() => setMode('per100')} />
@@ -145,14 +145,14 @@ export default function FoodForm() {
       <Field label={priceLabel} value={price} onChangeText={setPrice} keyboardType="decimal-pad" />
 
       {/* Live per-100 preview */}
-      <Card className="mt-1">
-        <Text className="font-semibold text-neutral-900 dark:text-neutral-50 mb-1">Stored as (per 100g)</Text>
-        <Text className="text-neutral-600 dark:text-neutral-300">
+      <View className="mt-1 rounded-2xl bg-[#EAF7EC] border border-[#CDE8D2] p-[14px]">
+        <Text className="font-display-sb text-[13px] text-brand-ink mb-1">STORED AS (PER 100g)</Text>
+        <Text className="font-body-sb text-[13.5px] text-[#245C33] leading-5">
           {fmt(basis.calories, 1)} kcal · P {fmt(basis.proteinG, 1)} · C {fmt(basis.carbsG, 1)} · F{' '}
           {fmt(basis.fatG, 1)} · Fib {fmt(basis.fiberG, 1)} · Na {fmt(basis.sodiumMg, 1)}mg ·{' '}
           {money(basis.pricePer100)}/100g
         </Text>
-      </Card>
+      </View>
 
       <Button label={isNew ? 'Add food' : 'Save changes'} onPress={save} className="mt-2" />
       {!isNew ? <Button label="Delete food" variant="danger" onPress={remove} /> : null}

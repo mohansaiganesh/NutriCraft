@@ -42,3 +42,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+AGENTS.md
+CLAUDE.md
+
+design/
+
+assets/sample_images/

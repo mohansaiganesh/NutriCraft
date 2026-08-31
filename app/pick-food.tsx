@@ -5,8 +5,8 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { addLog, addMealItem, foodsQuery } from '@/db/queries';
 import { nutritionFor } from '@/lib/nutrition';
 import { num } from '@/lib/format';
-import { MEAL_TYPES, mealLabel, type MealType } from '@/constants/meals';
-import { Button, Card, Chip, EmptyState, Field, Muted } from '@/components/ui';
+import { mealLabel, type MealType } from '@/constants/meals';
+import { Button, Card, cardShadow, Chip, EmptyState, Field, Muted } from '@/components/ui';
 import { MacroChips } from '@/components/nutrition';
 import type { FoodItem } from '@/db/schema';
 
@@ -38,9 +38,9 @@ export default function PickFood() {
   if (selected) {
     const preview = nutritionFor(selected, num(grams));
     return (
-      <View className="flex-1 bg-neutral-50 dark:bg-black p-4 gap-3">
+      <View className="flex-1 bg-paper p-4 gap-3">
         <Card>
-          <Text className="font-semibold text-neutral-900 dark:text-neutral-50 mb-1">
+          <Text className="font-display-sb text-[15px] text-ink" numberOfLines={1}>
             {selected.name.replace(/_/g, ' ')}
           </Text>
           <MacroChips totals={preview} />
@@ -52,7 +52,7 @@ export default function PickFood() {
           ))}
         </View>
         {params.mode === 'log' ? (
-          <Muted className="text-xs">
+          <Muted className="text-[13px]">
             Logging to {mealLabel(params.mealType ?? '')} · {params.date}
           </Muted>
         ) : null}
@@ -64,7 +64,7 @@ export default function PickFood() {
 
   // Step 1: search + pick a food.
   return (
-    <View className="flex-1 bg-neutral-50 dark:bg-black">
+    <View className="flex-1 bg-paper">
       <FlatList
         data={foods}
         keyExtractor={(f) => f.id}
@@ -81,9 +81,10 @@ export default function PickFood() {
               setSelected(item);
               setGrams(String(item.servingSizeG || 100));
             }}
-            className="rounded-xl bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 p-3 mb-2 active:opacity-80"
+            className="rounded-2xl bg-card border border-hair p-[14px] mb-2 active:opacity-90"
+            style={cardShadow}
           >
-            <Text className="text-neutral-900 dark:text-neutral-50" numberOfLines={1}>
+            <Text className="font-body-sb text-ink" numberOfLines={1}>
               {item.name.replace(/_/g, ' ')}
             </Text>
           </Pressable>

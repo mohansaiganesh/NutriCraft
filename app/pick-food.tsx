@@ -81,13 +81,14 @@ export default function PickFood() {
   return (
     <View className="flex-1 bg-paper">
       <DetailHeader title="Add food" />
+      <View className="px-4 pt-1 pb-3">
+        <Field placeholder="Search foods…" value={q} onChangeText={setQ} autoCapitalize="none" />
+      </View>
       <FlatList
         data={foods}
         keyExtractor={(f) => f.id}
-        contentContainerClassName="p-4 pb-8"
-        ListHeaderComponent={
-          <Field placeholder="Search foods…" value={q} onChangeText={setQ} autoCapitalize="none" className="mb-3" />
-        }
+        contentContainerClassName="px-4 pb-8"
+        keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           <EmptyState title="No foods found" subtitle="Add foods in the Foods tab first." />
         }

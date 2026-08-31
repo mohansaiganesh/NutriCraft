@@ -51,6 +51,21 @@ export function IconBowl({ size, color, strokeWidth = 2.1 }: IconProps) {
   );
 }
 
+export function IconCatalog({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      {/* book cover + spine */}
+      <Path d="M4 5.5A1.5 1.5 0 0 1 5.5 4H19a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H6a2 2 0 0 0-2 2z" />
+      <Path d="M4 5.5V18" />
+      {/* catalog entry lines */}
+      <Path d="M8 8.5h6" />
+      <Path d="M8 12h4" />
+      {/* leaf accent */}
+      <Path d="M15.6 12c1.5-.2 2.6.7 2.7 2.1-.1 1.4-1.2 2.3-2.7 2.1.1-1.4.1-2.8 0-4.2z" />
+    </Svg>
+  );
+}
+
 export function IconPlate({ size, color, strokeWidth = 2.1 }: IconProps) {
   return (
     <Svg {...base(size, color, strokeWidth)}>

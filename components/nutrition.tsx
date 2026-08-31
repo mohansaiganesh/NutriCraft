@@ -9,21 +9,46 @@ export function MacroChips({
   totals,
   currency = '$',
   macrosOnly = false,
+  split = false,
+  emphasizeMacros = false,
 }: {
   totals: NutritionTotals;
   currency?: string;
   /** When true, omit calories + cost and show only the P/C/F/fiber macros. */
   macrosOnly?: boolean;
+  /** When true, put calories + cost on their own row above the macros. */
+  split?: boolean;
+  /** When true, render the macros bold and larger. */
+  emphasizeMacros?: boolean;
 }) {
+  const macroClass = emphasizeMacros ? 'font-body-b text-[15px]' : 'font-body-sb text-[13px]';
+  const macros = (
+    <>
+      <Text className={`text-protein ${macroClass}`}>P {fmt(totals.proteinG, 1)}g</Text>
+      <Text className={`text-carbs ${macroClass}`}>C {fmt(totals.carbsG, 1)}g</Text>
+      <Text className={`text-fat ${macroClass}`}>F {fmt(totals.fatG, 1)}g</Text>
+      <Text className={`text-fiber ${macroClass}`}>Fib {fmt(totals.fiberG, 1)}g</Text>
+    </>
+  );
+
+  if (split) {
+    return (
+      <View className="mt-[6px]">
+        <View className="flex-row gap-x-3">
+          <Text className="font-body-b text-cal text-[13px]">{fmt(totals.calories)} kcal</Text>
+          <Text className="font-body-sb text-cost text-[13px]">{money(totals.cost, currency)}</Text>
+        </View>
+        <View className="flex-row flex-wrap gap-x-3 gap-y-1 mt-[6px]">{macros}</View>
+      </View>
+    );
+  }
+
   return (
-    <View className="flex-row flex-wrap gap-x-3 gap-y-1 mt-[6px]">
+    <View className={`flex-row flex-wrap gap-x-3 gap-y-1 mt-[6px] ${emphasizeMacros ? 'justify-center' : ''}`}>
       {!macrosOnly && (
         <Text className="font-body-b text-cal text-[13px]">{fmt(totals.calories)} kcal</Text>
       )}
-      <Text className="font-body-sb text-protein text-[13px]">P {fmt(totals.proteinG, 1)}g</Text>
-      <Text className="font-body-sb text-carbs text-[13px]">C {fmt(totals.carbsG, 1)}g</Text>
-      <Text className="font-body-sb text-fat text-[13px]">F {fmt(totals.fatG, 1)}g</Text>
-      <Text className="font-body-sb text-fiber text-[13px]">Fib {fmt(totals.fiberG, 1)}g</Text>
+      {macros}
       {!macrosOnly && (
         <Text className="font-body-sb text-cost text-[13px]">{money(totals.cost, currency)}</Text>
       )}

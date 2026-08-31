@@ -1,12 +1,14 @@
 import { useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { dayLogsQuery, removeLog, settingsQuery } from '@/db/queries';
 import { nutritionFor, sumNutrition, type NutritionTotals } from '@/lib/nutrition';
 import { addDaysISO, dateLabel, fmt, money, todayISO } from '@/lib/format';
 import { MEAL_TYPES, type MealType } from '@/constants/meals';
-import { Card, Muted } from '@/components/ui';
+import { AddFoodButton, Card, Muted } from '@/components/ui';
+import { IconChevronLeft, IconChevronRight, MealIcon } from '@/components/icons';
 import { MacroChips, TargetProgress } from '@/components/nutrition';
 import type { FoodItem } from '@/db/schema';
 
@@ -16,7 +18,19 @@ function entryTotals(food: FoodItem, grams: number): NutritionTotals {
   return nutritionFor(food, grams);
 }
 
+function NavButton({ onPress, children }: { onPress: () => void; children: React.ReactNode }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className="w-[42px] h-[42px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
+    >
+      {children}
+    </Pressable>
+  );
+}
+
 export default function TodayScreen() {
+  const insets = useSafeAreaInsets();
   const [date, setDate] = useState(todayISO());
   const { data: settingsRows } = useLiveQuery(settingsQuery());
   const { data: rows } = useLiveQuery(dayLogsQuery(date), [date]);
@@ -27,37 +41,32 @@ export default function TodayScreen() {
   const currency = settings?.currency ?? '$';
 
   const confirmDelete = (id: string, name: string) => {
-    Alert.alert('Remove entry', `Remove ${name} from ${dateLabel(date)}?`, [
+    Alert.alert('Remove entry', `Remove ${name.replace(/_/g, ' ')} from ${dateLabel(date)}?`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: () => removeLog(id) },
     ]);
   };
 
   return (
-    <ScrollView className="flex-1 bg-neutral-50 dark:bg-black" contentContainerClassName="p-4 pb-24">
+    <ScrollView className="flex-1 bg-paper" contentContainerClassName="px-4 pb-24">
       {/* Date navigator */}
-      <View className="flex-row items-center justify-between mb-4">
-        <Pressable
-          onPress={() => setDate((d) => addDaysISO(d, -1))}
-          className="w-10 h-10 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 items-center justify-center"
-        >
-          <Text className="text-lg text-neutral-700 dark:text-neutral-200">‹</Text>
-        </Pressable>
+      <View
+        className="flex-row items-center justify-between mb-4"
+        style={{ paddingTop: insets.top + 10 }}
+      >
+        <NavButton onPress={() => setDate((d) => addDaysISO(d, -1))}>
+          <IconChevronLeft size={20} color="#3A4A3D" />
+        </NavButton>
         <Pressable onPress={() => setDate(todayISO())} className="items-center">
-          <Text className="text-xl font-bold text-neutral-900 dark:text-neutral-50">
-            {dateLabel(date)}
-          </Text>
-          <Muted className="text-xs">{date}</Muted>
+          <Text className="font-display text-[22px] text-ink">{dateLabel(date)}</Text>
+          <Text className="font-body text-[12px] text-ink3 mt-[1px]">{date}</Text>
         </Pressable>
-        <Pressable
-          onPress={() => setDate((d) => addDaysISO(d, 1))}
-          className="w-10 h-10 rounded-full bg-white dark:bg-neutral-900 border border-neutral-200 dark:border-neutral-800 items-center justify-center"
-        >
-          <Text className="text-lg text-neutral-700 dark:text-neutral-200">›</Text>
-        </Pressable>
+        <NavButton onPress={() => setDate((d) => addDaysISO(d, 1))}>
+          <IconChevronRight size={20} color="#3A4A3D" />
+        </NavButton>
       </View>
 
-      {/* Targets */}
+      {/* Calorie-ring hero */}
       {settings ? (
         <Card className="mb-4">
           <TargetProgress totals={dayTotals} settings={settings} />
@@ -65,24 +74,30 @@ export default function TodayScreen() {
       ) : null}
 
       {/* Meal sections */}
-      {MEAL_TYPES.map(({ key, label, icon }) => {
+      {MEAL_TYPES.map(({ key, label, icon, tint, tintBg }) => {
         const sectionRows = allRows.filter((r) => r.log.mealType === key);
         const sectionTotals = sumNutrition(
           sectionRows.map((r) => entryTotals(r.food, r.log.grams))
         );
         return (
           <Card key={key} className="mb-3">
-            <View className="flex-row items-center justify-between mb-2">
-              <Text className="text-base font-bold text-neutral-900 dark:text-neutral-50">
-                {icon} {label}
-              </Text>
-              <Text className="text-sm text-neutral-500">
+            <View className="flex-row items-center justify-between">
+              <View className="flex-row items-center" style={{ gap: 10 }}>
+                <View
+                  className="w-[34px] h-[34px] rounded-xl items-center justify-center"
+                  style={{ backgroundColor: tintBg }}
+                >
+                  <MealIcon name={icon} size={19} color={tint} />
+                </View>
+                <Text className="font-display-sb text-[17px] text-ink">{label}</Text>
+              </View>
+              <Text className="font-body-b text-[13px] text-ink2">
                 {fmt(sectionTotals.calories)} kcal · {money(sectionTotals.cost, currency)}
               </Text>
             </View>
 
             {sectionRows.length === 0 ? (
-              <Muted className="text-sm py-1">Nothing logged yet.</Muted>
+              <Muted className="text-[13px] py-2">Nothing logged yet.</Muted>
             ) : (
               sectionRows.map((r) => (
                 <Pressable
@@ -99,30 +114,30 @@ export default function TodayScreen() {
                       },
                     })
                   }
-                  className="py-2 border-t border-neutral-100 dark:border-neutral-800"
+                  className="py-[11px] border-t border-[#F0F3EC] active:opacity-70"
                 >
-                  <View className="flex-row justify-between">
-                    <Text className="text-neutral-800 dark:text-neutral-100 flex-1 pr-2" numberOfLines={1}>
+                  <View className="flex-row justify-between items-center">
+                    <Text
+                      className="font-body-sb text-ink flex-1 pr-2"
+                      numberOfLines={1}
+                    >
                       {r.food.name.replace(/_/g, ' ')}
                     </Text>
-                    <Text className="text-neutral-500">{fmt(r.log.grams)}g</Text>
+                    <Text className="font-body-sb text-ink3 text-[13px]">{fmt(r.log.grams)} g</Text>
                   </View>
                   <MacroChips totals={entryTotals(r.food, r.log.grams)} currency={currency} />
                 </Pressable>
               ))
             )}
 
-            <Pressable
+            <AddFoodButton
               onPress={() =>
                 router.push({
                   pathname: '/pick-food',
                   params: { mode: 'log', date, mealType: key as MealType },
                 })
               }
-              className="mt-2 py-2 items-center rounded-xl bg-sky-50 dark:bg-sky-950"
-            >
-              <Text className="text-sky-600 font-semibold">+ Add food</Text>
-            </Pressable>
+            />
           </Card>
         );
       })}

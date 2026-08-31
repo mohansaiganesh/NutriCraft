@@ -13,9 +13,10 @@ import {
   updateMealItemGrams,
 } from '@/db/queries';
 import { nutritionFor, sumNutrition } from '@/lib/nutrition';
-import { num, todayISO } from '@/lib/format';
+import { fmt, num, todayISO } from '@/lib/format';
 import { MEAL_TYPES, type MealType } from '@/constants/meals';
-import { Button, Card, Chip, EmptyState, Field, Muted } from '@/components/ui';
+import { AddFoodButton, Button, Card, Chip, EmptyState, Field } from '@/components/ui';
+import { IconX } from '@/components/icons';
 import { MacroChips } from '@/components/nutrition';
 import type { FoodItem, MealItem } from '@/db/schema';
 
@@ -25,9 +26,9 @@ function ItemRow({ row, currency }: { row: Row; currency: string }) {
   const [grams, setGrams] = useState(String(row.item.grams));
   useEffect(() => setGrams(String(row.item.grams)), [row.item.grams]);
   return (
-    <View className="py-2 border-t border-neutral-100 dark:border-neutral-800">
+    <View className="py-3 border-t border-[#F0F3EC]">
       <View className="flex-row items-center justify-between">
-        <Text className="text-neutral-800 dark:text-neutral-100 flex-1 pr-2" numberOfLines={1}>
+        <Text className="font-body-sb text-ink flex-1 pr-2" numberOfLines={1}>
           {row.food.name.replace(/_/g, ' ')}
         </Text>
         <TextInput
@@ -35,11 +36,14 @@ function ItemRow({ row, currency }: { row: Row; currency: string }) {
           onChangeText={setGrams}
           onEndEditing={() => updateMealItemGrams(row.item.id, num(grams))}
           keyboardType="decimal-pad"
-          className="w-16 text-right rounded-lg border border-neutral-300 dark:border-neutral-700 px-2 py-1 text-neutral-900 dark:text-neutral-50"
+          className="w-14 text-right rounded-xl border border-[#DCE5D4] bg-card px-2 py-1 font-body-b text-[14px] text-ink"
         />
-        <Text className="text-neutral-500 ml-1">g</Text>
-        <Pressable onPress={() => removeMealItem(row.item.id)} className="ml-2 px-2">
-          <Text className="text-red-500 text-lg">✕</Text>
+        <Text className="font-body text-ink3 ml-1">g</Text>
+        <Pressable
+          onPress={() => removeMealItem(row.item.id)}
+          className="ml-2 w-7 h-7 rounded-full bg-[#FDECEC] items-center justify-center active:opacity-70"
+        >
+          <IconX size={13} color="#E03131" />
         </Pressable>
       </View>
       <MacroChips totals={nutritionFor(row.food, num(grams))} currency={currency} />
@@ -87,7 +91,7 @@ export default function MealBuilder() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-neutral-50 dark:bg-black" contentContainerClassName="p-4 pb-16 gap-3">
+    <ScrollView className="flex-1 bg-paper" contentContainerClassName="p-4 pb-16 gap-[14px]">
       <Field
         label="Meal name"
         value={name}
@@ -96,32 +100,30 @@ export default function MealBuilder() {
       />
 
       <Card>
-        <View className="flex-row items-center justify-between mb-1">
-          <Text className="font-bold text-neutral-900 dark:text-neutral-50">Items</Text>
-        </View>
+        <Text className="font-display-sb text-[16px] text-ink mb-1">Items</Text>
         {rows.length === 0 ? (
           <EmptyState title="No items" subtitle="Add foods with the button below." />
         ) : (
           rows.map((r) => <ItemRow key={r.item.id} row={r} currency={currency} />)
         )}
-        <Pressable
+        <AddFoodButton
           onPress={() =>
             router.push({ pathname: '/pick-food', params: { mode: 'mealItem', mealId: id } })
           }
-          className="mt-2 py-2 items-center rounded-xl bg-sky-50 dark:bg-sky-950"
-        >
-          <Text className="text-sky-600 font-semibold">+ Add food</Text>
-        </Pressable>
+        />
       </Card>
 
       <Card>
-        <Text className="font-bold text-neutral-900 dark:text-neutral-50 mb-1">Meal totals</Text>
+        <View className="flex-row items-center justify-between">
+          <Text className="font-display-sb text-[16px] text-ink">Meal totals</Text>
+          <Text className="font-display-sb text-[20px] text-brand">{fmt(totals.calories)} kcal</Text>
+        </View>
         <MacroChips totals={totals} currency={currency} />
       </Card>
 
       <Card>
-        <Text className="font-bold text-neutral-900 dark:text-neutral-50 mb-2">Log to today</Text>
-        <View className="flex-row flex-wrap mb-2">
+        <Text className="font-display-sb text-[16px] text-ink mb-2">Log to today</Text>
+        <View className="flex-row flex-wrap mb-1">
           {MEAL_TYPES.map((m) => (
             <Chip key={m.key} label={m.label} active={target === m.key} onPress={() => setTarget(m.key)} />
           ))}

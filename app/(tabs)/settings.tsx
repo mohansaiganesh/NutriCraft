@@ -5,7 +5,11 @@ import { settingsQuery, updateSettings } from '@/db/queries';
 import { importSeedCatalog } from '@/lib/seed';
 import { importBackup, shareBackup } from '@/lib/backup';
 import { num } from '@/lib/format';
-import { Button, Card, Field, Muted } from '@/components/ui';
+import { AppHeader, Button, Card, Field, Muted } from '@/components/ui';
+
+function CardTitle({ children }: { children: React.ReactNode }) {
+  return <Text className="font-display-sb text-[17px] text-ink mb-1">{children}</Text>;
+}
 
 export default function SettingsScreen() {
   const { data } = useLiveQuery(settingsQuery());
@@ -73,9 +77,11 @@ export default function SettingsScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-neutral-50 dark:bg-black" contentContainerClassName="p-4 pb-16 gap-3">
+    <ScrollView className="flex-1 bg-paper" contentContainerClassName="px-4 pb-16 gap-[14px]">
+      <AppHeader kicker="Preferences" title="Settings" />
+
       <Card className="gap-3">
-        <Text className="font-bold text-lg text-neutral-900 dark:text-neutral-50">Daily targets</Text>
+        <CardTitle>Daily targets</CardTitle>
         <View className="flex-row gap-3">
           <Field label="Calories" value={calories} onChangeText={setCalories} keyboardType="decimal-pad" className="flex-1" />
           <Field label="Protein (g)" value={protein} onChangeText={setProtein} keyboardType="decimal-pad" className="flex-1" />
@@ -88,26 +94,28 @@ export default function SettingsScreen() {
           <Field label="Fiber (g)" value={fiber} onChangeText={setFiber} keyboardType="decimal-pad" className="flex-1" />
           <Field label="Sodium (mg)" value={sodium} onChangeText={setSodium} keyboardType="decimal-pad" className="flex-1" />
         </View>
-        <Field label="Currency symbol" value={currency} onChangeText={setCurrency} className="w-24" />
+        <Field label="Currency symbol" value={currency} onChangeText={setCurrency} className="w-28" />
         <Button label="Save targets" onPress={saveTargets} />
       </Card>
 
       <Card className="gap-3">
-        <Text className="font-bold text-lg text-neutral-900 dark:text-neutral-50">Backup</Text>
-        <Muted className="text-sm">Export your entire database to a JSON file, or merge one back in.</Muted>
+        <CardTitle>Backup</CardTitle>
+        <Muted className="text-[13.5px] leading-5">
+          Export your foods, meals and logs to a JSON file, or merge one back in.
+        </Muted>
         <Button label="Export data (JSON)" onPress={onExport} variant="secondary" />
         <Button label="Import data (JSON)" onPress={onImport} variant="secondary" />
       </Card>
 
-      <Card className="gap-2">
-        <Text className="font-bold text-lg text-neutral-900 dark:text-neutral-50">Starter catalog</Text>
-        <Muted className="text-sm">
+      <Card className="gap-3">
+        <CardTitle>Starter catalog</CardTitle>
+        <Muted className="text-[13.5px] leading-5">
           Re-import the built-in starter foods (skips ones already in your catalog).
         </Muted>
         <Button label="Import starter foods" onPress={onReimportSeed} variant="secondary" />
       </Card>
 
-      <Muted className="text-center text-xs mt-2">NutriCraft · local-first (SQLite)</Muted>
+      <Muted className="text-center text-[12px] mt-2">NutriCraft · local-first (SQLite)</Muted>
     </ScrollView>
   );
 }

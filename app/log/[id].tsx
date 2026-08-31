@@ -36,10 +36,10 @@ export default function LogEditScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-neutral-50 dark:bg-black" contentContainerClassName="p-4 gap-3">
+    <ScrollView className="flex-1 bg-paper" contentContainerClassName="p-4 gap-3">
       <Field label="Amount (g/ml)" value={grams} onChangeText={setGrams} keyboardType="decimal-pad" autoFocus />
       <View>
-        <Text className="text-sm font-medium text-neutral-600 dark:text-neutral-300 mb-1">Meal</Text>
+        <Text className="font-body-sb text-[12.5px] text-ink2 mb-[6px]">Meal</Text>
         <View className="flex-row flex-wrap">
           {MEAL_TYPES.map((m) => (
             <Chip key={m.key} label={m.label} active={mealType === m.key} onPress={() => setMealType(m.key)} />

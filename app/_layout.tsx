@@ -5,21 +5,40 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { useFonts } from 'expo-font';
+import {
+  BricolageGrotesque_600SemiBold,
+  BricolageGrotesque_700Bold,
+  BricolageGrotesque_800ExtraBold,
+} from '@expo-google-fonts/bricolage-grotesque';
+import {
+  PlusJakartaSans_400Regular,
+  PlusJakartaSans_500Medium,
+  PlusJakartaSans_600SemiBold,
+  PlusJakartaSans_700Bold,
+} from '@expo-google-fonts/plus-jakarta-sans';
 import { useAppMigrations } from '@/db/migrate';
 import { ensureSettings } from '@/db/queries';
 import { seedIfEmpty } from '@/lib/seed';
 
 function Center({ children }: { children: React.ReactNode }) {
   return (
-    <View className="flex-1 items-center justify-center bg-neutral-50 dark:bg-black gap-3 p-6">
-      {children}
-    </View>
+    <View className="flex-1 items-center justify-center bg-paper gap-3 p-6">{children}</View>
   );
 }
 
 export default function RootLayout() {
   const { success, error } = useAppMigrations();
   const [ready, setReady] = useState(false);
+  const [fontsLoaded] = useFonts({
+    BricolageGrotesque_600SemiBold,
+    BricolageGrotesque_700Bold,
+    BricolageGrotesque_800ExtraBold,
+    PlusJakartaSans_400Regular,
+    PlusJakartaSans_500Medium,
+    PlusJakartaSans_600SemiBold,
+    PlusJakartaSans_700Bold,
+  });
 
   useEffect(() => {
     if (!success) return;
@@ -36,17 +55,21 @@ export default function RootLayout() {
   if (error) {
     return (
       <Center>
-        <Text className="text-red-500 font-semibold">Database error</Text>
-        <Text className="text-neutral-500 text-center">{error.message}</Text>
+        <Text className="text-over font-body-b">Database error</Text>
+        <Text className="text-ink2 font-body text-center">{error.message}</Text>
       </Center>
     );
   }
 
-  if (!success || !ready) {
+  if (!success || !ready || !fontsLoaded) {
     return (
       <Center>
-        <ActivityIndicator size="large" color="#0ea5e9" />
-        <Text className="text-neutral-500">Setting up NutriCraft…</Text>
+        <ActivityIndicator size="large" color="#2F9E44" />
+        {fontsLoaded ? (
+          <Text className="text-ink2 font-body">Setting up NutriCraft…</Text>
+        ) : (
+          <Text className="text-ink2">Setting up NutriCraft…</Text>
+        )}
       </Center>
     );
   }
@@ -54,12 +77,14 @@ export default function RootLayout() {
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
       <SafeAreaProvider>
-        <StatusBar style="auto" />
+        <StatusBar style="dark" />
         <Stack
           screenOptions={{
-            headerStyle: { backgroundColor: '#0ea5e9' },
-            headerTintColor: '#fff',
-            headerTitleStyle: { fontWeight: '700' },
+            headerStyle: { backgroundColor: '#F6F8F3' },
+            headerTintColor: '#16241A',
+            headerShadowVisible: false,
+            headerTitleStyle: { fontFamily: 'BricolageGrotesque_700Bold', fontSize: 18 },
+            contentStyle: { backgroundColor: '#F6F8F3' },
           }}
         >
           <Stack.Screen name="(tabs)" options={{ headerShown: false }} />

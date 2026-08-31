@@ -33,8 +33,21 @@ export function IconToday({ size, color, strokeWidth = 2.1 }: IconProps) {
 export function IconLeaf({ size, color, strokeWidth = 2.1 }: IconProps) {
   return (
     <Svg {...base(size, color, strokeWidth)}>
-      <Path d="M11 20A7 7 0 0 1 4 13c0-4 3-8 8-9 0 5-1 9-1 16z" />
-      <Path d="M20 5c0 5-3 9-8 9" />
+      <Path d="M12 3C7 7 6 14 12 21C18 14 17 7 12 3z" />
+      <Path d="M12 20L12 5" />
+      <Path d="M12 9.5L8.7 6.9" />
+      <Path d="M12 13L15.3 10.4" />
+    </Svg>
+  );
+}
+
+export function IconBowl({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M3 11h18" />
+      <Path d="M4 11a8 8 0 0 0 16 0" />
+      <Path d="M11 4c0 1.2-1 1.5-1 2.7" />
+      <Path d="M14 4c0 1.2-1 1.5-1 2.7" />
     </Svg>
   );
 }
@@ -52,7 +65,7 @@ export function IconGear({ size, color, strokeWidth = 2.1 }: IconProps) {
   return (
     <Svg {...base(size, color, strokeWidth)}>
       <Circle cx="12" cy="12" r="3" />
-      <Path d="M19.4 15a1.6 1.6 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.6 1.6 0 0 0-2.7 1.1V21a2 2 0 1 1-4 0v-.1A1.6 1.6 0 0 0 6.6 19a1.6 1.6 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.6 1.6 0 0 0-1.1-2.7H1a2 2 0 1 1 0-4h.1A1.6 1.6 0 0 0 2.2 6.6a1.6 1.6 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.6 1.6 0 0 0 1.8.3H7a1.6 1.6 0 0 0 1-1.5V1a2 2 0 1 1 4 0v.1A1.6 1.6 0 0 0 15 2.2a1.6 1.6 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.6 1.6 0 0 0-.3 1.8V7a1.6 1.6 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.6 1.6 0 0 0-1.5 1z" />
+      <Path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
     </Svg>
   );
 }
@@ -121,11 +134,28 @@ export function IconChevronRight({ size, color, strokeWidth = 2.3 }: IconProps) 
   );
 }
 
+export function IconChevronDown({ size, color, strokeWidth = 2.3 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M6 9l6 6 6-6" />
+    </Svg>
+  );
+}
+
 export function IconPlus({ size, color, strokeWidth = 2.6 }: IconProps) {
   return (
     <Svg {...base(size, color, strokeWidth)}>
       <Line x1="12" y1="5" x2="12" y2="19" />
       <Line x1="5" y1="12" x2="19" y2="12" />
+    </Svg>
+  );
+}
+
+export function IconPencil({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M12 20h9" />
+      <Path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" />
     </Svg>
   );
 }

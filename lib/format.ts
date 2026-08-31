@@ -13,6 +13,13 @@ export function money(n: number, currency = '$'): string {
   return `${sign}${currency}${Math.abs(n).toFixed(2)}`;
 }
 
+/** "chicken_breast" → "Chicken Breast" (display only; also swaps underscores for spaces). */
+export function titleCase(s: string): string {
+  return s
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
 /** Local calendar day as 'YYYY-MM-DD' (not UTC — avoids off-by-one at night). */
 export function todayISO(d: Date = new Date()): string {
   const y = d.getFullYear();

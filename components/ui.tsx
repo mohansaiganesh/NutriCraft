@@ -8,7 +8,8 @@ import {
   ViewProps,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { IconPlus } from './icons';
+import { router } from 'expo-router';
+import { IconChevronLeft, IconPlus } from './icons';
 
 /** Soft card elevation shared by every raised surface. */
 export const cardShadow = {
@@ -56,6 +57,29 @@ export function AppHeader({
         {right}
       </View>
       {subtitle ? <Text className="font-body text-[13.5px] text-ink2 mt-2">{subtitle}</Text> : null}
+    </View>
+  );
+}
+
+/** In-screen header for detail/form screens — back button + title, safe-area aware. */
+export function DetailHeader({ title, right, onBack }: { title: string; right?: ReactNode; onBack?: () => void }) {
+  const insets = useSafeAreaInsets();
+  return (
+    <View
+      style={{ paddingTop: insets.top + 6 }}
+      className="px-4 pb-3 bg-paper flex-row items-center"
+    >
+      <Pressable
+        onPress={onBack ?? (() => router.back())}
+        className="w-10 h-10 -ml-2 rounded-full items-center justify-center active:opacity-60"
+        hitSlop={8}
+      >
+        <IconChevronLeft size={24} color="#16241A" />
+      </Pressable>
+      <Text className="font-display text-[22px] text-ink flex-1 ml-1" numberOfLines={1}>
+        {title}
+      </Text>
+      {right}
     </View>
   );
 }

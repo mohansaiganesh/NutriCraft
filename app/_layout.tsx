@@ -80,17 +80,14 @@ export default function RootLayout() {
         <StatusBar style="dark" />
         <Stack
           screenOptions={{
-            headerStyle: { backgroundColor: '#F6F8F3' },
-            headerTintColor: '#16241A',
-            headerShadowVisible: false,
-            headerTitleStyle: { fontFamily: 'BricolageGrotesque_700Bold', fontSize: 18 },
+            headerShown: false,
             contentStyle: { backgroundColor: '#F6F8F3' },
           }}
         >
-          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-          <Stack.Screen name="food/[id]" options={{ presentation: 'modal', title: 'Food' }} />
-          <Stack.Screen name="meal/[id]" options={{ title: 'Meal' }} />
-          <Stack.Screen name="pick-food" options={{ presentation: 'modal', title: 'Add food' }} />
+          <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="food/[id]" options={{ presentation: 'modal' }} />
+          <Stack.Screen name="meal/[id]" />
+          <Stack.Screen name="pick-food" options={{ presentation: 'modal' }} />
         </Stack>
       </SafeAreaProvider>
     </GestureHandlerRootView>

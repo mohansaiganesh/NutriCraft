@@ -5,11 +5,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { dayLogsQuery, removeLog, settingsQuery } from '@/db/queries';
 import { nutritionFor, sumNutrition, type NutritionTotals } from '@/lib/nutrition';
-import { addDaysISO, dateLabel, fmt, money, todayISO } from '@/lib/format';
+import { addDaysISO, dateLabel, fmt, money, titleCase, todayISO } from '@/lib/format';
 import { MEAL_TYPES, type MealType } from '@/constants/meals';
-import { AddFoodButton, Card, Muted } from '@/components/ui';
-import { IconChevronLeft, IconChevronRight, MealIcon } from '@/components/icons';
-import { MacroChips, TargetProgress } from '@/components/nutrition';
+import { Card, Muted } from '@/components/ui';
+import { IconChevronDown, IconChevronLeft, IconChevronRight, IconPencil, IconPlus, MealIcon } from '@/components/icons';
+import { TargetProgress } from '@/components/nutrition';
 import type { FoodItem } from '@/db/schema';
 
 type Row = { log: { id: string; grams: number; mealType: string }; food: FoodItem };
@@ -32,6 +32,7 @@ function NavButton({ onPress, children }: { onPress: () => void; children: React
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const [date, setDate] = useState(todayISO());
+  const [open, setOpen] = useState<Record<string, boolean>>({});
   const { data: settingsRows } = useLiveQuery(settingsQuery());
   const { data: rows } = useLiveQuery(dayLogsQuery(date), [date]);
 
@@ -79,65 +80,119 @@ export default function TodayScreen() {
         const sectionTotals = sumNutrition(
           sectionRows.map((r) => entryTotals(r.food, r.log.grams))
         );
+        const isOpen = !!open[key];
         return (
           <Card key={key} className="mb-3">
             <View className="flex-row items-center justify-between">
-              <View className="flex-row items-center" style={{ gap: 10 }}>
+              <Pressable
+                onPress={() => setOpen((o) => ({ ...o, [key]: !o[key] }))}
+                className="flex-row items-center flex-1 active:opacity-70"
+                style={{ gap: 10 }}
+              >
                 <View
                   className="w-[34px] h-[34px] rounded-xl items-center justify-center"
                   style={{ backgroundColor: tintBg }}
                 >
                   <MealIcon name={icon} size={19} color={tint} />
                 </View>
-                <Text className="font-display-sb text-[17px] text-ink">{label}</Text>
-              </View>
-              <Text className="font-body-b text-[13px] text-ink2">
-                {fmt(sectionTotals.calories)} kcal · {money(sectionTotals.cost, currency)}
-              </Text>
+                <View className="flex-1">
+                  <View className="flex-row items-center" style={{ gap: 6 }}>
+                    <Text className="font-display-sb text-[17px] text-ink">{label}</Text>
+                    {isOpen ? (
+                      <IconChevronDown size={16} color="#8A9A8C" />
+                    ) : (
+                      <IconChevronRight size={16} color="#8A9A8C" />
+                    )}
+                  </View>
+                  <Text className="font-body-b text-[13px] text-ink2 mt-[1px]">
+                    {sectionRows.length} {sectionRows.length === 1 ? 'item' : 'items'} · <Text className="text-cal">{fmt(sectionTotals.calories)} kcal</Text> · {money(sectionTotals.cost, currency)}
+                  </Text>
+                  {sectionRows.length > 0 ? (
+                    <View className="flex-row gap-x-2 mt-[3px]">
+                      <Text className="font-body-sb text-protein text-[11px]">P {fmt(sectionTotals.proteinG, 1)}g</Text>
+                      <Text className="font-body-sb text-carbs text-[11px]">C {fmt(sectionTotals.carbsG, 1)}g</Text>
+                      <Text className="font-body-sb text-fat text-[11px]">F {fmt(sectionTotals.fatG, 1)}g</Text>
+                      <Text className="font-body-sb text-fiber text-[11px]">Fib {fmt(sectionTotals.fiberG, 1)}g</Text>
+                    </View>
+                  ) : null}
+                </View>
+              </Pressable>
+              <Pressable
+                onPress={() =>
+                  router.push({
+                    pathname: '/pick-food',
+                    params: { mode: 'log', date, mealType: key as MealType },
+                  })
+                }
+                className="w-[42px] h-[42px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
+              >
+                <IconPlus size={20} color="#1B7A32" />
+              </Pressable>
             </View>
 
-            {sectionRows.length === 0 ? (
-              <Muted className="text-[13px] py-2">Nothing logged yet.</Muted>
-            ) : (
-              sectionRows.map((r) => (
-                <Pressable
-                  key={r.log.id}
-                  onLongPress={() => confirmDelete(r.log.id, r.food.name)}
-                  onPress={() =>
-                    router.push({
-                      pathname: '/log/[id]',
-                      params: {
-                        id: r.log.id,
-                        grams: String(r.log.grams),
-                        mealType: r.log.mealType,
-                        name: r.food.name,
-                      },
-                    })
-                  }
-                  className="py-[11px] border-t border-[#F0F3EC] active:opacity-70"
-                >
-                  <View className="flex-row justify-between items-center">
-                    <Text
-                      className="font-body-sb text-ink flex-1 pr-2"
-                      numberOfLines={1}
-                    >
-                      {r.food.name.replace(/_/g, ' ')}
-                    </Text>
-                    <Text className="font-body-sb text-ink3 text-[13px]">{fmt(r.log.grams)} g</Text>
+            {isOpen ? (
+              sectionRows.length === 0 ? (
+                <View className="flex-row items-center flex-wrap py-2" style={{ gap: 4 }}>
+                  <Muted className="text-[13px]">Tap</Muted>
+                  <View className="w-[20px] h-[20px] rounded-full bg-card border border-hair items-center justify-center">
+                    <IconPlus size={13} color="#1B7A32" />
                   </View>
-                  <MacroChips totals={entryTotals(r.food, r.log.grams)} currency={currency} />
-                </Pressable>
-              ))
-            )}
-
-            <AddFoodButton
-              onPress={() =>
-                router.push({
-                  pathname: '/pick-food',
-                  params: { mode: 'log', date, mealType: key as MealType },
+                  <Muted className="text-[13px]">to add food here.</Muted>
+                </View>
+              ) : (
+                sectionRows.map((r) => {
+                  const totals = entryTotals(r.food, r.log.grams);
+                  return (
+                    <Pressable
+                      key={r.log.id}
+                      onLongPress={() => confirmDelete(r.log.id, r.food.name)}
+                      className="py-[11px] border-t border-[#F0F3EC] flex-row items-center"
+                      style={{ gap: 10 }}
+                    >
+                      <View className="flex-1">
+                        <View className="flex-row items-baseline shrink">
+                          <Text className="font-body-sb text-ink text-[16px] shrink" numberOfLines={1}>
+                            {titleCase(r.food.name)}
+                          </Text>
+                          <Text className="font-body-sb text-ink3 text-[13px] ml-2">
+                            ({fmt(r.log.grams)} g)
+                          </Text>
+                        </View>
+                        <Text className="font-body text-ink3 text-[11px] mt-[1px]" numberOfLines={1}>
+                          {titleCase(r.food.brand)}
+                        </Text>
+                        <View className="flex-row gap-x-3 mt-[6px]">
+                          <Text className="font-body-sb text-protein text-[13px]">P {fmt(totals.proteinG, 1)}g</Text>
+                          <Text className="font-body-sb text-carbs text-[13px]">C {fmt(totals.carbsG, 1)}g</Text>
+                          <Text className="font-body-sb text-fat text-[13px]">F {fmt(totals.fatG, 1)}g</Text>
+                          <Text className="font-body-sb text-fiber text-[13px]">Fib {fmt(totals.fiberG, 1)}g</Text>
+                        </View>
+                        <View className="flex-row gap-x-3 mt-[4px]">
+                          <Text className="font-body-b text-cal text-[13px]">{fmt(totals.calories)} kcal</Text>
+                          <Text className="font-body-sb text-cost text-[13px]">{money(totals.cost, currency)}</Text>
+                        </View>
+                      </View>
+                      <Pressable
+                        onPress={() =>
+                          router.push({
+                            pathname: '/log/[id]',
+                            params: {
+                              id: r.log.id,
+                              grams: String(r.log.grams),
+                              mealType: r.log.mealType,
+                              name: r.food.name,
+                            },
+                          })
+                        }
+                        className="w-[36px] h-[36px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
+                      >
+                        <IconPencil size={16} color="#1B7A32" />
+                      </Pressable>
+                    </Pressable>
+                  );
                 })
-              }
-            />
+              )
+            ) : null}
           </Card>
         );
       })}

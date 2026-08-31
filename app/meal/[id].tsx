@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
-import { router, useLocalSearchParams, useNavigation } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import {
   applyMealToDay,
@@ -15,7 +15,7 @@ import {
 import { nutritionFor, sumNutrition } from '@/lib/nutrition';
 import { fmt, num, todayISO } from '@/lib/format';
 import { MEAL_TYPES, type MealType } from '@/constants/meals';
-import { AddFoodButton, Button, Card, Chip, EmptyState, Field } from '@/components/ui';
+import { AddFoodButton, Button, Card, Chip, DetailHeader, EmptyState, Field } from '@/components/ui';
 import { IconX } from '@/components/icons';
 import { MacroChips } from '@/components/nutrition';
 import type { FoodItem, MealItem } from '@/db/schema';
@@ -53,7 +53,6 @@ function ItemRow({ row, currency }: { row: Row; currency: string }) {
 
 export default function MealBuilder() {
   const { id } = useLocalSearchParams<{ id: string }>();
-  const navigation = useNavigation();
   const [name, setName] = useState('');
   const [target, setTarget] = useState<MealType>('breakfast');
 
@@ -64,7 +63,6 @@ export default function MealBuilder() {
   const totals = sumNutrition(rows.map((r) => nutritionFor(r.food, r.item.grams)));
 
   useEffect(() => {
-    navigation.setOptions({ title: 'Meal' });
     (async () => {
       const m = await getMeal(id);
       if (m) setName(m.name);
@@ -91,7 +89,9 @@ export default function MealBuilder() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-paper" contentContainerClassName="p-4 pb-16 gap-[14px]">
+    <View className="flex-1 bg-paper">
+      <DetailHeader title="Meal" />
+      <ScrollView className="flex-1" contentContainerClassName="p-4 pb-16 gap-[14px]">
       <Field
         label="Meal name"
         value={name}
@@ -132,6 +132,7 @@ export default function MealBuilder() {
       </Card>
 
       <Button label="Delete meal" variant="danger" onPress={remove} />
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }

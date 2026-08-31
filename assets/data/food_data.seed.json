@@ -1,0 +1,218 @@
+[
+    {
+        "name": "almonds_kirkland_signature",
+        "protein": 20.0,
+        "carbohydrates": 30.0,
+        "fats": 40.0,
+        "fiber": 30.0,
+        "calories": 566.6666666666667,
+        "price": 1.037037037037037
+    },
+    {
+        "name": "blueberries_dried_sweetened_kirkland",
+        "protein": 0.0,
+        "carbohydrates": 82.5,
+        "fats": 1.25,
+        "fiber": 7.5,
+        "calories": 350.0,
+        "price": 2.6785714285714284
+    },
+    {
+        "name": "blueberries_wild_kirkland_signature",
+        "protein": 0.0,
+        "carbohydrates": 13.571428571428571,
+        "fats": 0.0,
+        "fiber": 4.285714285714286,
+        "calories": 57.14285714285714,
+        "price": 0.625
+    },
+    {
+        "name": "butter_salted_members_mark",
+        "protein": 0.0,
+        "carbohydrates": 0.0,
+        "fats": 78.57142857142857,
+        "fiber": 0.0,
+        "calories": 714.2857142857143,
+        "price": 0.47098214285714285
+    },
+    {
+        "name": "cashews_roasted_salted_members_mark",
+        "protein": 17.857142857142858,
+        "carbohydrates": 32.142857142857146,
+        "fats": 46.42857142857143,
+        "fiber": 3.571428571428571,
+        "calories": 607.1428571428571,
+        "price": 1.5151515151515151
+    },
+    {
+        "name": "chicken_breast_boneless_skinless_members_mark",
+        "protein": 20.535714285714285,
+        "carbohydrates": 0.0,
+        "fats": 2.232142857142857,
+        "fiber": 0.0,
+        "calories": 107.14285714285714,
+        "price": 0.6696428571428571
+    },
+    {
+        "name": "cranberry_ocean_spray",
+        "protein": 0.0,
+        "carbohydrates": 82.5,
+        "fats": 0.0,
+        "fiber": 7.5,
+        "calories": 325.0,
+        "price": 0.5602941176470588
+    },
+    {
+        "name": "dates_medjool",
+        "protein": 2.2222222222222223,
+        "carbohydrates": 73.33333333333333,
+        "fats": 0.0,
+        "fiber": 8.88888888888889,
+        "calories": 311.11111111111114,
+        "price": 1.046783625730994
+    },
+    {
+        "name": "dates_organic_pitted_hadley",
+        "protein": 2.5,
+        "carbohydrates": 75.0,
+        "fats": 0.0,
+        "fiber": 7.5,
+        "calories": 275.0,
+        "price": 0.8928571428571428
+    },
+    {
+        "name": "eggs_members_mark",
+        "protein": 12.0,
+        "carbohydrates": 0.0,
+        "fats": 10.0,
+        "fiber": 0.0,
+        "calories": 140.0,
+        "price": 0.33333333333333337
+    },
+    {
+        "name": "fish_tilapia_fillets_boneless_skinless_members_mark",
+        "protein": 15.929203539823009,
+        "carbohydrates": 0.0,
+        "fats": 1.3274336283185841,
+        "fiber": 0.0,
+        "calories": 79.64601769911505,
+        "price": 1.0796460176991152
+    },
+    {
+        "name": "ghee_deep",
+        "protein": 0.0,
+        "carbohydrates": 0.0,
+        "fats": 90.0,
+        "fiber": 0.0,
+        "calories": 800.0,
+        "price": 1.746031746031746
+    },
+    {
+        "name": "honey_nates",
+        "protein": 0.0,
+        "carbohydrates": 80.95238095238095,
+        "fats": 0.0,
+        "fiber": 0.0,
+        "calories": 333.33333333333337,
+        "price": 1.1799838579499595
+    },
+    {
+        "name": "milk_whole_heb",
+        "protein": 3.389830508474576,
+        "carbohydrates": 5.084745762711865,
+        "fats": 3.389830508474576,
+        "fiber": 0.0,
+        "calories": 63.559322033898304,
+        "price": 0.08792372881355931
+    },
+    {
+        "name": "peanuts_members_mark",
+        "protein": 25.0,
+        "carbohydrates": 17.857142857142858,
+        "fats": 53.57142857142857,
+        "fiber": 7.142857142857142,
+        "calories": 642.8571428571429,
+        "price": 0.6302521008403361
+    },
+    {
+        "name": "pistachios_members_mark",
+        "protein": 20.0,
+        "carbohydrates": 30.0,
+        "fats": 43.333333333333336,
+        "fiber": 10.0,
+        "calories": 566.6666666666667,
+        "price": 2.301449275362319
+    },
+    {
+        "name": "potato_chips_heb_buffalo_flavored",
+        "protein": 7.142857142857142,
+        "carbohydrates": 53.57142857142857,
+        "fats": 32.142857142857146,
+        "fiber": 3.571428571428571,
+        "calories": 535.7142857142857,
+        "price": 0.5912698412698413
+    },
+    {
+        "name": "pumpkin_seeds_hulled_anna_sarah",
+        "protein": 30.0,
+        "carbohydrates": 11.0,
+        "fats": 49.0,
+        "fiber": 6.0,
+        "calories": 559.0,
+        "price": 1.3656387665198237
+    },
+    {
+        "name": "rice_basmati_royal",
+        "protein": 8.88888888888889,
+        "carbohydrates": 80.0,
+        "fats": 0.0,
+        "fiber": 2.2222222222222223,
+        "calories": 355.55555555555554,
+        "price": 0.24322830292979547
+    },
+    {
+        "name": "simply_granola_oats_quaker",
+        "protein": 10.294117647058822,
+        "carbohydrates": 75.0,
+        "fats": 10.294117647058822,
+        "fiber": 10.294117647058822,
+        "calories": 397.05882352941177,
+        "price": 0.5010141987829615
+    },
+    {
+        "name": "sunflower_seeds_anna_sarah",
+        "protein": 21.428571428571427,
+        "carbohydrates": 17.857142857142858,
+        "fats": 50.0,
+        "fiber": 10.714285714285714,
+        "calories": 571.4285714285714,
+        "price": 0.8928571428571428
+    },
+    {
+        "name": "toor_dal_royal_split_pigeon_heb",
+        "protein": 20.0,
+        "carbohydrates": 60.0,
+        "fats": 2.0,
+        "fiber": 14.000000000000002,
+        "calories": 320.0,
+        "price": 0.38333333333333336
+    },
+    {
+        "name": "walnuts_members_mark",
+        "protein": 14.285714285714285,
+        "carbohydrates": 14.285714285714285,
+        "fats": 64.28571428571429,
+        "fiber": 7.142857142857142,
+        "calories": 642.8571428571429,
+        "price": 0.9672619047619048
+    },
+    {
+        "name": "whey_protein_on",
+        "protein": 75.0,
+        "carbohydrates": 9.375,
+        "fats": 6.25,
+        "fiber": 1.5625,
+        "calories": 375.0,
+        "price": 2.734375
+    }
+]

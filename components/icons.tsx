@@ -1,4 +1,4 @@
-import Svg, { Circle, Line, Path, Polyline, Rect } from 'react-native-svg';
+import Svg, { Circle, Line, Path, Polyline } from 'react-native-svg';
 
 /**
  * Line-icon set for NutriCraft "Garden" — one consistent style (24px grid,
@@ -19,13 +19,12 @@ const base = (size = 24, color = '#16241A', strokeWidth = 2) => ({
   strokeLinejoin: 'round' as const,
 });
 
-export function IconToday({ size, color, strokeWidth = 2.1 }: IconProps) {
+export function IconHome({ size, color, strokeWidth = 2.1 }: IconProps) {
   return (
     <Svg {...base(size, color, strokeWidth)}>
-      <Path d="M3 3v18h18" />
-      <Rect x="7" y="11" width="3" height="6" rx="1" />
-      <Rect x="12.5" y="7" width="3" height="10" rx="1" />
-      <Rect x="18" y="13" width="3" height="4" rx="1" />
+      <Path d="M3 10.5L12 3l9 7.5" />
+      <Path d="M5 9.5V20a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V9.5" />
+      <Path d="M9.5 21v-6h5v6" />
     </Svg>
   );
 }
@@ -217,7 +216,7 @@ export function IconMeal({ size, color, strokeWidth = 2 }: IconProps) {
   );
 }
 
-/** Meal-section icon by key (used on the Today dashboard + meal builder). */
+/** Meal-section icon by key (used on the Home dashboard + meal builder). */
 export type MealIconName = 'sunrise' | 'sun' | 'moon' | 'apple';
 export function MealIcon({ name, size, color, strokeWidth }: IconProps & { name: MealIconName }) {
   switch (name) {

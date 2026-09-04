@@ -5,6 +5,7 @@ import { settingsQuery, updateSettings } from '@/db/queries';
 import { importSeedCatalog } from '@/lib/seed';
 import { importBackup, shareBackup } from '@/lib/backup';
 import { num } from '@/lib/format';
+import { useSession } from '@/lib/session';
 import { AppHeader, Button, Card, Field, Muted } from '@/components/ui';
 
 function CardTitle({ children }: { children: React.ReactNode }) {
@@ -14,6 +15,18 @@ function CardTitle({ children }: { children: React.ReactNode }) {
 export default function SettingsScreen() {
   const { data } = useLiveQuery(settingsQuery());
   const settings = data?.[0];
+  const { email, signOut } = useSession();
+
+  const onSignOut = () => {
+    Alert.alert(
+      'Sign out?',
+      'You’ll return to the login screen, where you or a different user can sign in. Any changes not yet synced will upload next time you sign in.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign out', style: 'destructive', onPress: () => void signOut() },
+      ]
+    );
+  };
 
   const [calories, setCalories] = useState('');
   const [protein, setProtein] = useState('');
@@ -115,7 +128,19 @@ export default function SettingsScreen() {
         <Button label="Import starter foods" onPress={onReimportSeed} variant="secondary" />
       </Card>
 
-      <Muted className="text-center text-[12px] mt-2">NutriCraft · local-first (SQLite)</Muted>
+      <Card className="gap-3">
+        <CardTitle>Account</CardTitle>
+        <Muted className="text-[13.5px] leading-5">
+          {email ? `Signed in as ${email}.` : 'Signed in.'} Your data syncs across your devices
+          and is restored when you reinstall. Sign out to switch to a different account on this
+          device.
+        </Muted>
+        <Button label="Sign out" onPress={onSignOut} variant="danger" />
+      </Card>
+
+      <Muted className="text-center text-[12px] mt-2">
+        NutriCraft · local-first + cloud sync
+      </Muted>
     </ScrollView>
   );
 }

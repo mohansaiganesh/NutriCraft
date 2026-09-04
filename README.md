@@ -33,6 +33,22 @@ First launch runs the DB migration and pre-loads the 24 starter foods from
 - **Styling:** NativeWind (Tailwind).
 - **Reactive data:** Drizzle `useLiveQuery` (SQLite change listener) — screens update
   automatically on writes.
+- **Accounts & cloud sync (required):** the app runs behind an email/password login — the
+  `AuthScreen` is the entry point, and signing out returns to it so a different user can
+  sign in on the same device. Local SQLite stays the source of truth; `lib/sync.ts` runs a
+  push-then-pull, last-write-wins delta sync (keyed on the `updated_at`/`deleted` columns)
+  against Postgres, gated by Row-Level Security so each account only sees its own data plus
+  the shared food catalog. Data survives uninstall/reinstall and appears on every device.
+  Supabase must be configured (`.env`); without it the app shows a "Cloud not configured"
+  setup screen. See `supabase/README.md` to set it up.
+
+### Multi-user data model
+
+Every syncable table carries a `user_id`. The **food catalog is shared** (rows with
+`user_id = NULL`, the starter foods) plus each user's private custom foods; **meals,
+meal items, daily logs, and settings are private** per account. `user_id` is nullable in
+the local SQLite schema (so migrations don't break old single-install rows — a NULL is
+"unclaimed" data the first-login claim stamps) and enforced NOT NULL on the cloud side.
 
 ### Key files
 
@@ -46,6 +62,7 @@ First launch runs the DB migration and pre-loads the 24 starter foods from
 | Today dashboard          | `app/(tabs)/index.tsx`                                |
 | Food catalog + form      | `app/(tabs)/foods.tsx`, `app/food/[id].tsx`          |
 | Meal templates           | `app/(tabs)/meals.tsx`, `app/meal/[id].tsx`          |
+| Auth & cloud sync        | `lib/session.tsx`, `lib/sync.ts`, `supabase/`        |
 | Settings / targets       | `app/(tabs)/settings.tsx`                             |
 
 ### Routing conventions
@@ -69,5 +86,6 @@ Only the `app/` router tree is bound by these rules — everything outside it
 
 ## Deferred (schema is ready for these)
 
-Adaptive TDEE engine, Postgres/Supabase cloud sync, AI photo-label + meal-photo
-estimation, voice logging, barcode scanning.
+Adaptive TDEE engine, AI photo-label + meal-photo estimation, voice logging, barcode
+scanning. (Postgres/Supabase cloud sync is now implemented — see the Architecture
+section and `supabase/README.md`.)

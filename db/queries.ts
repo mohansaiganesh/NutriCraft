@@ -1,12 +1,12 @@
-import { and, asc, desc, eq, like } from 'drizzle-orm';
+import { and, asc, desc, eq, like, or, isNull } from 'drizzle-orm';
 import { newId } from '@/lib/id';
+import { requireUserId } from '@/lib/currentUser';
 import type { PerHundredBasis } from '@/lib/nutrition';
 import type { MealType } from '@/constants/meals';
 import { db } from './client';
 import { dailyLogs, foodItems, mealItems, meals, settings } from './schema';
 
 const now = () => new Date().toISOString();
-const SETTINGS_ID = 'app';
 
 // ---------------------------------------------------------------- Foods
 
@@ -35,6 +35,7 @@ export async function createFood(input: FoodInput): Promise<string> {
   const id = newId();
   await db.insert(foodItems).values({
     id,
+    userId: requireUserId(), // private custom food owned by the current account
     name: input.name.trim(),
     brand: input.brand?.trim() || 'Generic',
     barcode: input.barcode?.trim() || null,
@@ -66,12 +67,17 @@ export async function softDeleteFood(id: string): Promise<void> {
     .where(eq(foodItems.id, id));
 }
 
-/** Live-query builder: catalog list, optional name search. */
+/**
+ * Live-query builder: catalog list, optional name search.
+ * Shows the shared/global catalog (`user_id IS NULL`) plus the current user's own
+ * private custom foods.
+ */
 export function foodsQuery(search = '') {
   const term = search.trim().toLowerCase();
+  const owned = or(isNull(foodItems.userId), eq(foodItems.userId, requireUserId()));
   const where = term
-    ? and(eq(foodItems.deleted, false), like(foodItems.name, `%${term}%`))
-    : eq(foodItems.deleted, false);
+    ? and(eq(foodItems.deleted, false), owned, like(foodItems.name, `%${term}%`))
+    : and(eq(foodItems.deleted, false), owned);
   return db
     .select()
     .from(foodItems)
@@ -88,7 +94,9 @@ export async function getFood(id: string) {
 
 export async function createMeal(name: string, notes?: string): Promise<string> {
   const id = newId();
-  await db.insert(meals).values({ id, name: name.trim(), notes: notes?.trim() || null });
+  await db
+    .insert(meals)
+    .values({ id, userId: requireUserId(), name: name.trim(), notes: notes?.trim() || null });
   return id;
 }
 
@@ -121,7 +129,7 @@ export async function addMealItem(
   grams: number
 ): Promise<string> {
   const id = newId();
-  await db.insert(mealItems).values({ id, mealId, foodItemId, grams });
+  await db.insert(mealItems).values({ id, userId: requireUserId(), mealId, foodItemId, grams });
   return id;
 }
 
@@ -143,7 +151,7 @@ export function mealsQuery() {
   return db
     .select()
     .from(meals)
-    .where(eq(meals.deleted, false))
+    .where(and(eq(meals.deleted, false), eq(meals.userId, requireUserId())))
     .orderBy(asc(meals.name));
 }
 
@@ -163,7 +171,7 @@ export function allMealItemsQuery() {
     .select({ item: mealItems, food: foodItems })
     .from(mealItems)
     .innerJoin(foodItems, eq(mealItems.foodItemId, foodItems.id))
-    .where(eq(mealItems.deleted, false));
+    .where(and(eq(mealItems.deleted, false), eq(mealItems.userId, requireUserId())));
 }
 
 export async function getMeal(id: string) {
@@ -180,7 +188,9 @@ export async function addLog(
   grams: number
 ): Promise<string> {
   const id = newId();
-  await db.insert(dailyLogs).values({ id, loggedDate, mealType, foodItemId, grams });
+  await db
+    .insert(dailyLogs)
+    .values({ id, userId: requireUserId(), loggedDate, mealType, foodItemId, grams });
   return id;
 }
 
@@ -223,24 +233,39 @@ export function dayLogsQuery(loggedDate: string) {
     .select({ log: dailyLogs, food: foodItems })
     .from(dailyLogs)
     .innerJoin(foodItems, eq(dailyLogs.foodItemId, foodItems.id))
-    .where(and(eq(dailyLogs.loggedDate, loggedDate), eq(dailyLogs.deleted, false)))
+    .where(
+      and(
+        eq(dailyLogs.loggedDate, loggedDate),
+        eq(dailyLogs.deleted, false),
+        eq(dailyLogs.userId, requireUserId())
+      )
+    )
     .orderBy(desc(dailyLogs.createdAt));
 }
 
 // ---------------------------------------------------------------- Settings
 
+// The auto-created default settings row is stamped with the epoch so it loses every
+// last-write-wins comparison and is NOT pushed by sync (cursor starts at epoch, and
+// `updatedAt > cursor` is false). This prevents a fresh/offline device's defaults from
+// clobbering the account's real cloud settings. The moment the user saves targets,
+// `updateSettings` bumps `updatedAt` to now and it syncs normally.
+const SETTINGS_EPOCH = '1970-01-01T00:00:00.000Z';
+
+/** Create the current user's settings row (id = userId) if it doesn't exist yet. */
 export async function ensureSettings() {
-  const rows = await db.select().from(settings).where(eq(settings.id, SETTINGS_ID));
+  const uid = requireUserId();
+  const rows = await db.select().from(settings).where(eq(settings.id, uid));
   if (rows.length === 0) {
-    await db.insert(settings).values({ id: SETTINGS_ID });
-    const created = await db.select().from(settings).where(eq(settings.id, SETTINGS_ID));
+    await db.insert(settings).values({ id: uid, updatedAt: SETTINGS_EPOCH });
+    const created = await db.select().from(settings).where(eq(settings.id, uid));
     return created[0];
   }
   return rows[0];
 }
 
 export function settingsQuery() {
-  return db.select().from(settings).where(eq(settings.id, SETTINGS_ID));
+  return db.select().from(settings).where(eq(settings.id, requireUserId()));
 }
 
 export async function updateSettings(
@@ -257,5 +282,5 @@ export async function updateSettings(
   await db
     .update(settings)
     .set({ ...patch, updatedAt: now() })
-    .where(eq(settings.id, SETTINGS_ID));
+    .where(eq(settings.id, requireUserId()));
 }

@@ -1,8 +1,10 @@
 import * as DocumentPicker from 'expo-document-picker';
 import { File, Paths } from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
-import { db, userId } from '@/db/client';
+import { eq, isNull, or } from 'drizzle-orm';
+import { db, deviceId } from '@/db/client';
 import { dailyLogs, foodItems, mealItems, meals, settings } from '@/db/schema';
+import { requireUserId } from '@/lib/currentUser';
 import { todayISO } from '@/lib/format';
 
 const BACKUP_VERSION = 1;
@@ -17,14 +19,21 @@ interface BackupShape {
   settings: unknown[];
 }
 
-/** Serialize the entire database (full fidelity, including soft-deleted rows). */
+/**
+ * Serialize the signed-in user's data (full fidelity, including soft-deleted rows).
+ * Foods include the shared catalog (`user_id IS NULL`) plus the user's custom foods.
+ */
 export async function exportDataJson(): Promise<string> {
+  const uid = requireUserId();
   const [f, m, mi, dl, s] = await Promise.all([
-    db.select().from(foodItems),
-    db.select().from(meals),
-    db.select().from(mealItems),
-    db.select().from(dailyLogs),
-    db.select().from(settings),
+    db
+      .select()
+      .from(foodItems)
+      .where(or(isNull(foodItems.userId), eq(foodItems.userId, uid))),
+    db.select().from(meals).where(eq(meals.userId, uid)),
+    db.select().from(mealItems).where(eq(mealItems.userId, uid)),
+    db.select().from(dailyLogs).where(eq(dailyLogs.userId, uid)),
+    db.select().from(settings).where(eq(settings.id, uid)),
   ]);
   const payload: BackupShape = {
     version: BACKUP_VERSION,
@@ -41,7 +50,7 @@ export async function exportDataJson(): Promise<string> {
 /** Write a backup file to the document dir and open the share sheet. */
 export async function shareBackup(): Promise<string> {
   const json = await exportDataJson();
-  const file = new File(Paths.document, `nutricraft-${userId}-backup-${todayISO()}.json`);
+  const file = new File(Paths.document, `nutricraft-${deviceId}-backup-${todayISO()}.json`);
   if (file.exists) file.delete();
   file.create();
   file.write(json);

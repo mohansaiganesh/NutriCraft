@@ -1,7 +1,9 @@
 -- Row-Level Security for NutriCraft. Run after schema.sql.
--- Every table is private to its owner; the food catalog additionally exposes shared
--- rows (user_id IS NULL) to everyone for reading. There are no DELETE policies —
--- deletion is a soft-delete UPDATE (deleted = true), consistent with the app.
+-- Every table is private to its owner; the food catalog additionally exposes an admin-curated
+-- SHARED catalog (rows with user_id IS NULL) to everyone for READING. Clients can never write
+-- those NULL-owner rows (insert/update require user_id = auth.uid()); the admin curates them with
+-- the service role, which bypasses RLS. There are no DELETE policies — deletion is a soft-delete
+-- UPDATE (deleted = true), consistent with the app.
 
 -- ---------- food_items ----------
 alter table public.food_items enable row level security;

@@ -23,12 +23,12 @@ const auditColumns = {
 
 /**
  * FOOD ITEMS CATALOG.
- * `userId` NULL = shared/global catalog row (the built-in starter foods, readable by
- * everyone). `userId` set = a private custom food owned by that user.
+ * Every food is private to its owner (`userId`). NULL only ever means unclaimed
+ * pre-account data, which `claimLocalData()` stamps on first login.
  */
 export const foodItems = sqliteTable('food_items', {
   id: text('id').primaryKey(),
-  // NULL = shared catalog; set = owner of a private custom food.
+  // Owner of this food; NULL = unclaimed pre-account row (claimed on first login).
   userId: text('user_id'),
   name: text('name').notNull(),
   brand: text('brand').notNull().default('Generic'),

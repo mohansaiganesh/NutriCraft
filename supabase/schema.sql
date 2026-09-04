@@ -1,10 +1,11 @@
 -- NutriCraft cloud schema (Postgres / Supabase).
--- Mirrors db/schema.ts. Run this first in the Supabase SQL editor, then rls.sql,
--- then seed.sql. Timestamps are stored as TEXT (client-generated UTC ISO-8601) so
+-- Mirrors db/schema.ts. Run this first in the Supabase SQL editor, then rls.sql. Optionally
+-- add shared catalog rows afterward with seed-shared-catalog.sql.
+-- Timestamps are stored as TEXT (client-generated UTC ISO-8601) so
 -- the app's last-write-wins comparison matches exactly on both stores.
 
--- Food catalog. user_id NULL = shared/global catalog (readable by everyone);
--- user_id set = a private custom food.
+-- Food catalog. user_id set = a user's private food. user_id NULL (is_custom = false) = an
+-- admin-curated SHARED food readable by everyone (curated server-side with the service role).
 create table if not exists public.food_items (
   id             text primary key,
   user_id        uuid references auth.users (id) on delete cascade,

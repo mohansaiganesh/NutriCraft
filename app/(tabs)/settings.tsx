@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { Alert, ScrollView, Text, View } from 'react-native';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { settingsQuery, updateSettings } from '@/db/queries';
-import { importSeedCatalog } from '@/lib/seed';
 import { importBackup, shareBackup } from '@/lib/backup';
 import { num } from '@/lib/format';
 import { useSession } from '@/lib/session';
@@ -84,11 +83,6 @@ export default function SettingsScreen() {
     }
   };
 
-  const onReimportSeed = async () => {
-    const { inserted, skipped } = await importSeedCatalog();
-    Alert.alert('Starter catalog', `Added ${inserted} foods (${skipped} already present).`);
-  };
-
   return (
     <ScrollView className="flex-1 bg-paper" contentContainerClassName="px-4 pb-16 gap-[14px]">
       <AppHeader kicker="Preferences" title="Settings" />
@@ -118,14 +112,6 @@ export default function SettingsScreen() {
         </Muted>
         <Button label="Export data (JSON)" onPress={onExport} variant="secondary" />
         <Button label="Import data (JSON)" onPress={onImport} variant="secondary" />
-      </Card>
-
-      <Card className="gap-3">
-        <CardTitle>Starter catalog</CardTitle>
-        <Muted className="text-[13.5px] leading-5">
-          Re-import the built-in starter foods (skips ones already in your catalog).
-        </Muted>
-        <Button label="Import starter foods" onPress={onReimportSeed} variant="secondary" />
       </Card>
 
       <Card className="gap-3">

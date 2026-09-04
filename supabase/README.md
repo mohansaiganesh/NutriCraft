@@ -19,8 +19,13 @@ sync. The app stays fully local-first — this just adds the durable, account-sc
 In the Supabase **SQL editor**, run these files **in order**:
 1. `schema.sql` — tables (mirrors `db/schema.ts`; timestamps are client-generated ISO text).
 2. `rls.sql` — Row-Level Security policies + realtime publication.
-3. `seed.sql` — the 24 shared starter foods (`user_id = NULL`), ids matching the app's
-   `seedFoodId()` so a local seed and the cloud row dedupe by primary key.
+
+No starter data ships. A new account opens to the **shared catalog** plus its own (initially
+empty) private foods. The shared catalog is admin-curated **server-side**: run
+`seed-shared-catalog.sql` in the SQL editor (which runs as the service role and so bypasses RLS)
+to insert/edit/soft-delete shared rows (`user_id = NULL`, `is_custom = false`). Users can read
+those rows but never write them — the app has no admin UI. Later, an Open Food Facts / USDA
+import (service role) will populate the same shared tier.
 
 ## 3. Auth settings
 - **Authentication → Providers → Email** is enabled by default.
@@ -42,7 +47,5 @@ In the Supabase **SQL editor**, run these files **in order**:
 ## This setup is required
 An account is now mandatory — the app can't run without a backend to sign into. If `.env`
 is missing (`isSupabaseConfigured` is false), the app shows a "Cloud not configured" setup
-screen instead of the login page. **Running `seed.sql` is required too**: with login
-mandatory the app no longer seeds the starter foods locally, so the shared catalog reaches
-each account only through the initial cloud pull — skip the seed and new accounts open to an
-empty catalog.
+screen instead of the login page. No starter data ships; each new account opens to the
+admin-curated shared catalog (if any) plus its own private foods.

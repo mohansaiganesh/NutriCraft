@@ -21,7 +21,8 @@ interface BackupShape {
 
 /**
  * Serialize the signed-in user's data (full fidelity, including soft-deleted rows).
- * Foods include the shared catalog (`user_id IS NULL`) plus the user's custom foods.
+ * Foods include the shared catalog (`user_id IS NULL`) plus the user's own foods, so the backup
+ * is self-contained (its meals/logs reference shared foods).
  */
 export async function exportDataJson(): Promise<string> {
   const uid = requireUserId();

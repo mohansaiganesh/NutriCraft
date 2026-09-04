@@ -5,7 +5,6 @@ import type { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { setCurrentUserId } from '@/lib/currentUser';
 import { ensureSettings } from '@/db/queries';
-import { dedupeSharedCatalog, seedIfEmpty } from '@/lib/seed';
 import {
   cancelPendingSync,
   claimLocalData,
@@ -64,16 +63,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       await syncNow(uid).catch(() => {
         /* offline — proceed with whatever is cached locally */
       });
-      // One-time cleanup for devices upgraded from the early random-id seed build: collapse
-      // duplicate shared catalog rows onto their canonical `seed-<name>` twin (must run after
-      // the pull, once those canonical rows exist locally). Best-effort — never block entry.
-      await dedupeSharedCatalog().catch((e) => {
-        console.warn('[session] shared-catalog dedupe skipped this launch', e);
-      });
       // Create a default settings row only if neither local nor cloud had one.
       await ensureSettings();
-      // Local-only fallback seeding is a no-op when Supabase is configured.
-      await seedIfEmpty();
     } finally {
       setStatus('ready');
     }

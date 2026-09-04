@@ -2,6 +2,7 @@ import { and, asc, desc, eq, like, or, isNull } from 'drizzle-orm';
 import { newId } from '@/lib/id';
 import { requireUserId } from '@/lib/currentUser';
 import type { PerHundredBasis } from '@/lib/nutrition';
+import type { RemoteFood } from '@/lib/foodSearch';
 import type { MealType } from '@/constants/meals';
 import { db } from './client';
 import { dailyLogs, foodItems, mealItems, meals, settings } from './schema';
@@ -46,6 +47,22 @@ export async function createFood(input: FoodInput): Promise<string> {
   return id;
 }
 
+/**
+ * Save a food found via an external source (Open Food Facts) as the current user's own
+ * private food. Barcode is intentionally dropped: `food_items.barcode` is a GLOBAL unique,
+ * so two accounts saving the same product would collide on sync — same reasoning as the
+ * "Duplicate to my foods" path. The user can add price/adjust after it lands.
+ */
+export async function createFoodFromRemote(r: RemoteFood): Promise<string> {
+  return createFood({
+    name: r.name,
+    brand: r.brand,
+    barcode: null,
+    servingSizeG: r.servingSizeG,
+    basis: r.basis,
+  });
+}
+
 export async function updateFood(id: string, input: FoodInput): Promise<void> {
   await db
     .update(foodItems)
@@ -69,8 +86,8 @@ export async function softDeleteFood(id: string): Promise<void> {
 
 /**
  * Live-query builder: catalog list, optional name search.
- * Shows the shared/global catalog (`user_id IS NULL`) plus the current user's own
- * private custom foods.
+ * Shows the shared/global catalog (`user_id IS NULL`, admin-curated, read-only) plus the
+ * current user's own private foods.
  */
 export function foodsQuery(search = '') {
   const term = search.trim().toLowerCase();
@@ -155,23 +172,37 @@ export function mealsQuery() {
     .orderBy(asc(meals.name));
 }
 
-/** A meal's line items joined to their food (for totals + editing). */
+/** A meal's line items joined to their food (for totals + editing).
+ * Filters out deleted foods so a removed (or admin-deleted shared) food drops out of the meal. */
 export function mealItemsQuery(mealId: string) {
   return db
     .select({ item: mealItems, food: foodItems })
     .from(mealItems)
     .innerJoin(foodItems, eq(mealItems.foodItemId, foodItems.id))
-    .where(and(eq(mealItems.mealId, mealId), eq(mealItems.deleted, false)))
+    .where(
+      and(
+        eq(mealItems.mealId, mealId),
+        eq(mealItems.deleted, false),
+        eq(foodItems.deleted, false)
+      )
+    )
     .orderBy(asc(foodItems.name));
 }
 
-/** All meal line items (any meal) joined to their food — for list-level totals. */
+/** All meal line items (any meal) joined to their food — for list-level totals.
+ * Deleted foods are excluded so they no longer count toward any meal's totals. */
 export function allMealItemsQuery() {
   return db
     .select({ item: mealItems, food: foodItems })
     .from(mealItems)
     .innerJoin(foodItems, eq(mealItems.foodItemId, foodItems.id))
-    .where(and(eq(mealItems.deleted, false), eq(mealItems.userId, requireUserId())));
+    .where(
+      and(
+        eq(mealItems.deleted, false),
+        eq(foodItems.deleted, false),
+        eq(mealItems.userId, requireUserId())
+      )
+    );
 }
 
 export async function getMeal(id: string) {
@@ -227,7 +258,11 @@ export async function applyMealToDay(
   return items.length;
 }
 
-/** All log entries for a day, joined to their food. */
+/** All log entries for a day, joined to their food.
+ * Intentionally does NOT filter `foodItems.deleted`: a log is a historical fact and must keep
+ * resolving its food (and computing nutrition) even after that food is deleted, so past days and
+ * future reports stay correct. This is the deliberate counterpart to `mealItemsQuery`, which does
+ * drop deleted foods. */
 export function dayLogsQuery(loggedDate: string) {
   return db
     .select({ log: dailyLogs, food: foodItems })

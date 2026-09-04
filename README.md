@@ -11,8 +11,7 @@ npm install
 npm start            # then press 'a' (Android), 'i' (iOS), or scan the QR in Expo Go
 ```
 
-First launch runs the DB migration and pre-loads the 24 starter foods from
-`assets/data/food_data.seed.json`.
+First launch runs the DB migration; a new account opens to an empty catalog and adds its own foods.
 
 ## Scripts
 
@@ -44,11 +43,25 @@ First launch runs the DB migration and pre-loads the 24 starter foods from
 
 ### Multi-user data model
 
-Every syncable table carries a `user_id`. The **food catalog is shared** (rows with
-`user_id = NULL`, the starter foods) plus each user's private custom foods; **meals,
-meal items, daily logs, and settings are private** per account. `user_id` is nullable in
-the local SQLite schema (so migrations don't break old single-install rows — a NULL is
-"unclaimed" data the first-login claim stamps) and enforced NOT NULL on the cloud side.
+Every syncable table carries a `user_id`. **Meals, meal items, daily logs, and settings are
+private** per account. **Foods** are either private (`user_id = you`, `is_custom = true`,
+editable) or **shared** (`user_id IS NULL`, `is_custom = false`) — an admin-curated global
+catalog everyone reads but only the service role writes (`supabase/seed-shared-catalog.sql`).
+`user_id` is nullable in the local SQLite schema (it holds shared rows, and a NULL private row
+is "unclaimed" data the first-login claim stamps). Editing a food propagates to every meal/log
+that uses it (nutrition is computed live from `foodId + grams`); deleting a food removes it from
+meal templates but leaves historical logs intact for reports.
+
+**Online food search (Open Food Facts + USDA).** When you search on the Foods tab or the Add-food
+picker, local/shared matches show instantly and, in parallel, a debounced lookup queries external
+sources for items not yet in the catalog: [Open Food Facts](https://world.openfoodfacts.org)
+(packaged/barcoded foods, no key) and, when a key is configured,
+[USDA FoodData Central](https://fdc.nal.usda.gov/) (generic whole foods). Both merge into one
+deduped "Online results" list, each row tagged `OFF` or `USDA`. Picking a result saves it as your
+**private** food (`lib/foodSearch.ts` maps each source's per-100g values onto the catalog basis).
+The remote leg is best-effort: any source that's down never blocks local search — the others still
+show, with a quiet "unavailable" note. OFF needs no key; USDA needs a free
+`EXPO_PUBLIC_FDC_API_KEY` (see `.env.example`) and is silently skipped without one.
 
 ### Key files
 
@@ -57,7 +70,6 @@ the local SQLite schema (so migrations don't break old single-install rows — a
 | Nutrition math           | `lib/nutrition.ts` (tested in `__tests__/`)          |
 | DB schema                | `db/schema.ts`                                        |
 | Queries / mutations      | `db/queries.ts`                                       |
-| Seed / starter import    | `lib/seed.ts`                                         |
 | Backup export/import     | `lib/backup.ts`                                       |
 | Today dashboard          | `app/(tabs)/index.tsx`                                |
 | Food catalog + form      | `app/(tabs)/foods.tsx`, `app/food/[id].tsx`          |
@@ -86,6 +98,6 @@ Only the `app/` router tree is bound by these rules — everything outside it
 
 ## Deferred (schema is ready for these)
 
-Adaptive TDEE engine, AI photo-label + meal-photo estimation, voice logging, barcode
-scanning. (Postgres/Supabase cloud sync is now implemented — see the Architecture
-section and `supabase/README.md`.)
+Adaptive TDEE engine, AI photo-label + meal-photo estimation, voice logging, and barcode
+scanning. (Postgres/Supabase cloud sync and online food search — Open Food Facts + USDA
+FoodData Central — are implemented; see the Architecture section and `supabase/README.md`.)

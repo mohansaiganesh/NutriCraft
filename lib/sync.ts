@@ -1,8 +1,18 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { and, eq, gt, isNull, or } from 'drizzle-orm';
-import { db, deviceId } from '@/db/client';
+import { and, eq, gt, isNull } from 'drizzle-orm';
+import { db } from '@/db/client';
 import { dailyLogs, foodItems, mealItems, meals, settings } from '@/db/schema';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import {
+  EPOCH,
+  advanceCursorAll,
+  advanceCursorPartial,
+  fromRemote as mapFromRemote,
+  isRowLevelError,
+  maxIso,
+  shouldApplyRemote,
+  toRemote as mapToRemote,
+} from '@/lib/syncCore';
 
 /**
  * Delta-sync engine (local-first, last-write-wins).
@@ -14,12 +24,20 @@ import { supabase, isSupabaseConfigured } from '@/lib/supabase';
  * devices and immune to server-clock skew. Rows are never hard-deleted — the
  * `deleted` flag propagates like any other column.
  *
+ * Known limitation (accepted tradeoff): resolution is per-row last-write-wins by
+ * `updatedAt`. If the SAME row is edited offline on two devices, the edit with the later
+ * `updatedAt` wins and the other is silently discarded — there is no field-level merge.
+ * For a single-user personal tracker this is fine; a future multi-editor scenario would
+ * need CRDT/merge semantics instead.
+ *
+ * The pure decision logic (row mapping, cursor-advance math, the LWW rule, row-level error
+ * classification) lives in `@/lib/syncCore` so it can be unit-tested without RN/network
+ * (see `__tests__/sync.test.ts`); this module wires it to the real DB and Supabase.
+ *
  * Column names differ by store: local Drizzle keys are camelCase, Postgres columns
  * are snake_case (and `pricePer100` → `price_per_100` breaks naive converters), so
  * each table carries an explicit field map.
  */
-
-const EPOCH = '1970-01-01T00:00:00.000Z';
 
 interface SyncTable {
   /** Supabase (Postgres) table name. */
@@ -132,48 +150,15 @@ async function setCursor(userId: string, remote: string, iso: string): Promise<v
   }
 }
 
-/** Reset every cursor for a user (used on sign-out so the next login re-pulls fully). */
-export async function resetSyncCursors(userId: string): Promise<void> {
-  try {
-    await AsyncStorage.multiRemove(TABLES.map((t) => cursorKey(userId, t.remote)));
-  } catch {
-    // ignore
-  }
-}
-
-// --- row mapping --------------------------------------------------------------
-
-function toRemote(t: SyncTable, local: Record<string, any>): Record<string, any> {
-  const out: Record<string, any> = {};
-  for (const [localKey, remoteCol] of Object.entries(t.fields)) {
-    out[remoteCol] = local[localKey];
-  }
-  return out;
-}
-
-function fromRemote(t: SyncTable, remote: Record<string, any>): Record<string, any> {
-  const out: Record<string, any> = {};
-  for (const [localKey, remoteCol] of Object.entries(t.fields)) {
-    out[localKey] = remote[remoteCol];
-  }
-  return out;
-}
-
-const maxIso = (a: string, b: string) => (a > b ? a : b);
-
 // --- push / pull --------------------------------------------------------------
-
-/** A Postgres integrity-constraint error (class 23, e.g. 23503 FK) is a per-row data
- * problem — isolating the bad row lets the rest push. Anything else (network, auth) is
- * not row-specific, so we don't bother retrying row-by-row. */
-function isRowLevelError(error: any): boolean {
-  return typeof error?.code === 'string' && error.code.startsWith('23');
-}
+// Row mapping, cursor-advance math, LWW decision, and row-level error classification are
+// pure and live in `@/lib/syncCore` (unit-tested in `__tests__/sync.test.ts`).
 
 async function pushTable(t: SyncTable, userId: string): Promise<string> {
   const cursor = await getCursor(userId, t.remote);
-  // Only the user's own rows since the cursor. For food_items this naturally excludes
-  // shared (user_id IS NULL) catalog rows — RLS would reject writing them anyway.
+  // Only the user's own rows since the cursor. For food_items this naturally excludes shared
+  // (user_id IS NULL) catalog rows — those are admin-curated server-side and RLS rejects client
+  // writes to them anyway.
   const ownerCond = t.scoped ? eq(t.table.userId, userId) : eq(t.table.id, userId);
   const rows: Record<string, any>[] = await db
     .select()
@@ -183,9 +168,9 @@ async function pushTable(t: SyncTable, userId: string): Promise<string> {
   if (rows.length === 0) return cursor;
 
   // Fast path: one batch upsert for the whole table.
-  const { error } = await supabase.from(t.remote).upsert(rows.map((r) => toRemote(t, r)));
+  const { error } = await supabase.from(t.remote).upsert(rows.map((r) => mapToRemote(t.fields, r)));
   if (!error) {
-    return rows.reduce((mx, r) => maxIso(mx, r.updatedAt as string), cursor);
+    return advanceCursorAll(cursor, rows.map((r) => r.updatedAt as string));
   }
   // A non-row-level failure (offline, auth) isn't one bad row — let syncNow log it once
   // and leave the cursor so the whole batch retries next cycle.
@@ -197,7 +182,7 @@ async function pushTable(t: SyncTable, userId: string): Promise<string> {
   let minFailed: string | null = null;
   const succeeded: string[] = [];
   for (const r of rows) {
-    const { error: rowError } = await supabase.from(t.remote).upsert(toRemote(t, r));
+    const { error: rowError } = await supabase.from(t.remote).upsert(mapToRemote(t.fields, r));
     const at = r.updatedAt as string;
     if (rowError) {
       if (minFailed === null || at < minFailed) minFailed = at;
@@ -208,10 +193,7 @@ async function pushTable(t: SyncTable, userId: string): Promise<string> {
   }
   // Advance the cursor only past rows that succeeded AND precede the earliest failure, so
   // every failed row stays > cursor and is re-selected (and retried) next cycle.
-  return succeeded.reduce(
-    (mx, at) => (minFailed !== null && at >= minFailed ? mx : maxIso(mx, at)),
-    cursor
-  );
+  return advanceCursorPartial(cursor, succeeded, minFailed);
 }
 
 async function pullTable(t: SyncTable, userId: string): Promise<string> {
@@ -235,11 +217,12 @@ async function pullTable(t: SyncTable, userId: string): Promise<string> {
       .select({ updatedAt: t.table.updatedAt })
       .from(t.table)
       .where(eq(t.table.id, remoteRow.id));
-    if (localRows.length && (localRows[0].updatedAt as string) >= remoteUpdatedAt) {
+    const localUpdatedAt = localRows.length ? (localRows[0].updatedAt as string) : undefined;
+    if (!shouldApplyRemote(localUpdatedAt, remoteUpdatedAt)) {
       continue;
     }
 
-    const localRow = fromRemote(t, remoteRow);
+    const localRow = mapFromRemote(t.fields, remoteRow);
     await db
       .insert(t.table)
       .values(localRow)
@@ -330,53 +313,27 @@ export function cancelPendingSync(): void {
 }
 
 /**
- * One-time claim of any pre-account local rows for the now-signed-in user, so data created
- * before this account existed carries in and syncs up. This is the upgrade path from the
- * old single-install era: private rows carry a NULL owner (before `user_id` existed) or, on
- * a device that once ran a pre-account build, a `deviceId` owner. Foods with a NULL owner
- * are the SHARED catalog and are intentionally left alone.
+ * First-login claim of any pre-account local rows for the now-signed-in user, so private
+ * data created before `user_id` existed carries in and syncs up. Such rows carry a NULL
+ * owner; this stamps them with the account id. Idempotent — after the first claim there's
+ * nothing left to match. NULL-owner CATALOG foods (is_custom = false) are the admin-curated
+ * SHARED catalog and are intentionally left alone.
  */
 export async function claimLocalData(userId: string): Promise<void> {
   const now = new Date().toISOString();
   const stamp = { userId, updatedAt: now };
-  // Defensive: `userId` is always a real account id now (login is required), but guard the
-  // legacy shape where the device id was itself the owner so we don't self-claim.
-  const isLegacyDeviceOwner = userId === deviceId;
 
-  // Rows to adopt: NULL owner (pre-`user_id` private rows) and, for a real account,
-  // deviceId-owned rows left by an older build. All updates are idempotent — after the
-  // first claim there's nothing left to match.
-  const unclaimed = (col: any) =>
-    isLegacyDeviceOwner ? isNull(col) : or(isNull(col), eq(col, deviceId));
-  await db.update(meals).set(stamp).where(unclaimed(meals.userId));
-  await db.update(mealItems).set(stamp).where(unclaimed(mealItems.userId));
-  await db.update(dailyLogs).set(stamp).where(unclaimed(dailyLogs.userId));
+  await db.update(meals).set(stamp).where(isNull(meals.userId));
+  await db.update(mealItems).set(stamp).where(isNull(mealItems.userId));
+  await db.update(dailyLogs).set(stamp).where(isNull(dailyLogs.userId));
 
-  // A NULL-owner food that is_custom is a PRIVATE food from a pre-account build — claim it
-  // so it syncs (otherwise it's stranded: never pushed, not in the seed, and any meal_item /
-  // daily_log referencing it FK-fails on push forever). NULL-owner CATALOG rows
-  // (is_custom = false) are the shared seed and are intentionally left alone.
+  // A NULL-owner food that is_custom is a PRIVATE food from a pre-account build — claim it so it
+  // syncs. NULL-owner CATALOG rows (is_custom = false) are the shared admin catalog: they arrive
+  // via the pull and stay unclaimed/read-only, so they are intentionally left alone.
   await db
     .update(foodItems)
     .set(stamp)
     .where(and(isNull(foodItems.userId), eq(foodItems.isCustom, true)));
-  if (!isLegacyDeviceOwner) {
-    // Custom foods left by an older build were owned by deviceId.
-    await db.update(foodItems).set(stamp).where(eq(foodItems.userId, deviceId));
-  }
-
-  // Carry prior settings to this account if it has none yet (legacy deviceId or 'app' row).
-  const mine = await db.select({ id: settings.id }).from(settings).where(eq(settings.id, userId));
-  if (mine.length === 0) {
-    const prior = isLegacyDeviceOwner
-      ? (await db.select().from(settings).where(eq(settings.id, 'app')))[0]
-      : (await db.select().from(settings).where(eq(settings.id, deviceId)))[0] ??
-        (await db.select().from(settings).where(eq(settings.id, 'app')))[0];
-    if (prior) {
-      const { id: _drop, ...vals } = prior as Record<string, any>;
-      await db.insert(settings).values({ ...vals, id: userId, updatedAt: now });
-    }
-  }
 }
 
 /**

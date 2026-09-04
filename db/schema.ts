@@ -21,9 +21,15 @@ const auditColumns = {
   deleted: integer('deleted', { mode: 'boolean' }).notNull().default(false),
 };
 
-/** GLOBAL FOOD ITEMS CATALOG — the food catalog. */
+/**
+ * FOOD ITEMS CATALOG.
+ * `userId` NULL = shared/global catalog row (the built-in starter foods, readable by
+ * everyone). `userId` set = a private custom food owned by that user.
+ */
 export const foodItems = sqliteTable('food_items', {
   id: text('id').primaryKey(),
+  // NULL = shared catalog; set = owner of a private custom food.
+  userId: text('user_id'),
   name: text('name').notNull(),
   brand: text('brand').notNull().default('Generic'),
   barcode: text('barcode').unique(),
@@ -40,9 +46,15 @@ export const foodItems = sqliteTable('food_items', {
   ...auditColumns,
 });
 
-/** Reusable meal templates. */
+/**
+ * Reusable meal templates. Private per user.
+ * `userId` is nullable in the local SQLite schema only so migrations don't break
+ * existing single-install rows (a NULL means "unclaimed pre-account data" that the
+ * first-login claim stamps). The Postgres/cloud side enforces NOT NULL.
+ */
 export const meals = sqliteTable('meals', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   name: text('name').notNull(),
   notes: text('notes'),
   ...auditColumns,
@@ -51,6 +63,8 @@ export const meals = sqliteTable('meals', {
 /** Lines within a meal template: a food + gram weight. */
 export const mealItems = sqliteTable('meal_items', {
   id: text('id').primaryKey(),
+  // Owner denormalized from the parent meal so RLS/sync filters stay uniform.
+  userId: text('user_id'),
   mealId: text('meal_id')
     .notNull()
     .references(() => meals.id, { onDelete: 'cascade' }),
@@ -64,6 +78,7 @@ export const mealItems = sqliteTable('meal_items', {
 /** What was actually eaten on a given day. */
 export const dailyLogs = sqliteTable('daily_logs', {
   id: text('id').primaryKey(),
+  userId: text('user_id'),
   loggedDate: text('logged_date').notNull(), // 'YYYY-MM-DD' (local day)
   mealType: text('meal_type').notNull(), // breakfast | lunch | dinner | snack
   foodItemId: text('food_item_id')
@@ -73,9 +88,13 @@ export const dailyLogs = sqliteTable('daily_logs', {
   ...auditColumns,
 });
 
-/** Single-row settings: daily targets, currency, and a reserved TDEE slot. */
+/**
+ * Per-user settings: daily targets, currency, and a reserved TDEE slot.
+ * One row per account, keyed by `id = userId` (was a single 'app' singleton before
+ * multi-user). RLS on the cloud side matches `id = auth.uid()`.
+ */
 export const settings = sqliteTable('settings', {
-  id: text('id').primaryKey(), // always 'app'
+  id: text('id').primaryKey(), // = userId (per account)
   targetCalories: real('target_calories').notNull().default(2000),
   targetProteinG: real('target_protein_g').notNull().default(150),
   targetCarbsG: real('target_carbs_g').notNull().default(200),

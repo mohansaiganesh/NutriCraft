@@ -7,7 +7,7 @@
  * the hits. The remote leg NEVER blocks the local leg: a source that's down just lands in
  * `failedSources`, and only if EVERY source fails does `remoteStatus` become 'error'.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { foodsQuery } from '@/db/queries';
 import { FOOD_SOURCES, type RemoteFood } from '@/lib/foodSearch';
@@ -93,21 +93,26 @@ export function useFoodSearch(query: string): FoodSearchResult {
 
   // Dedupe: drop items already shown locally, then collapse cross-source dupes. Sources are
   // ordered so the authoritative entry (USDA) is seen first and wins a name/barcode tie.
-  const localBarcodes = new Set(
-    localFoods.map((f) => f.barcode).filter((b): b is string => !!b),
-  );
-  const localNames = new Set(localFoods.map((f) => normName(f.name)));
-  const seenBarcodes = new Set<string>();
-  const seenNames = new Set<string>();
-  const remoteFoods: RemoteFood[] = [];
-  for (const r of remote.foods) {
-    const name = normName(r.name);
-    if (r.barcode && (localBarcodes.has(r.barcode) || seenBarcodes.has(r.barcode))) continue;
-    if (localNames.has(name) || seenNames.has(name)) continue;
-    if (r.barcode) seenBarcodes.add(r.barcode);
-    seenNames.add(name);
-    remoteFoods.push(r);
-  }
+  // Memoized on [localFoods, remote.foods] so `remoteFoods` keeps a stable identity between
+  // unrelated re-renders — this lets the Foods list's `sections` memo and memoized rows bail.
+  const remoteFoods = useMemo<RemoteFood[]>(() => {
+    const localBarcodes = new Set(
+      localFoods.map((f) => f.barcode).filter((b): b is string => !!b),
+    );
+    const localNames = new Set(localFoods.map((f) => normName(f.name)));
+    const seenBarcodes = new Set<string>();
+    const seenNames = new Set<string>();
+    const out: RemoteFood[] = [];
+    for (const r of remote.foods) {
+      const name = normName(r.name);
+      if (r.barcode && (localBarcodes.has(r.barcode) || seenBarcodes.has(r.barcode))) continue;
+      if (localNames.has(name) || seenNames.has(name)) continue;
+      if (r.barcode) seenBarcodes.add(r.barcode);
+      seenNames.add(name);
+      out.push(r);
+    }
+    return out;
+  }, [localFoods, remote.foods]);
 
   return {
     localFoods,

@@ -5,11 +5,11 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { dayLogsQuery, removeLog, settingsQuery } from '@/db/queries';
 import { nutritionFor, sumNutrition, type NutritionTotals } from '@/lib/nutrition';
-import { addDaysISO, dateLabel, fmt, money, titleCase, todayISO } from '@/lib/format';
+import { addDaysISO, dateLabel, fmt, titleCase, todayISO } from '@/lib/format';
 import { MEAL_TYPES, type MealType } from '@/constants/meals';
 import { Card, Muted } from '@/components/ui';
 import { IconChevronDown, IconChevronLeft, IconChevronRight, IconPencil, IconPlus, MealIcon } from '@/components/icons';
-import { TargetProgress } from '@/components/nutrition';
+import { Cost, TargetProgress } from '@/components/nutrition';
 import type { FoodItem } from '@/db/schema';
 
 type Row = { log: { id: string; grams: number; mealType: string }; food: FoodItem };
@@ -70,7 +70,7 @@ export default function TodayScreen() {
       {/* Calorie-ring hero */}
       {settings ? (
         <Card className="mb-4">
-          <TargetProgress totals={dayTotals} settings={settings} />
+          <TargetProgress totals={dayTotals} settings={settings} itemCount={allRows.length} />
         </Card>
       ) : null}
 
@@ -80,10 +80,11 @@ export default function TodayScreen() {
         const sectionTotals = sumNutrition(
           sectionRows.map((r) => entryTotals(r.food, r.log.grams))
         );
+        const unpricedCount = sectionRows.filter((r) => !(r.food.pricePer100 > 0)).length;
         const isOpen = !!open[key];
         return (
           <Card key={key} className="mb-3">
-            <View className="flex-row items-center justify-between">
+            <View className="flex-row items-center justify-between relative" style={{ gap: 8 }}>
               <Pressable
                 onPress={() => setOpen((o) => ({ ...o, [key]: !o[key] }))}
                 className="flex-row items-center flex-1 active:opacity-70"
@@ -105,7 +106,7 @@ export default function TodayScreen() {
                     )}
                   </View>
                   <Text className="font-body-b text-[13px] text-ink2 mt-[1px]">
-                    {sectionRows.length} {sectionRows.length === 1 ? 'item' : 'items'} · <Text className="text-cal">{fmt(sectionTotals.calories)} kcal</Text> · {money(sectionTotals.cost, currency)}
+                    {sectionRows.length} {sectionRows.length === 1 ? 'item' : 'items'} · <Text className="text-cal">{fmt(sectionTotals.calories)} kcal</Text> · <Cost cost={sectionTotals.cost} currency={currency} count={sectionRows.length} />
                   </Text>
                   {sectionRows.length > 0 ? (
                     <View className="flex-row gap-x-2 mt-[3px]">
@@ -117,6 +118,11 @@ export default function TodayScreen() {
                   ) : null}
                 </View>
               </Pressable>
+              {unpricedCount > 0 ? (
+                <Text className="absolute right-0 top-0 font-body-sb text-[12px] text-ink3">
+                  {unpricedCount} {unpricedCount === 1 ? 'item' : 'items'} prices N/A
+                </Text>
+              ) : null}
               <Pressable
                 onPress={() =>
                   router.push({
@@ -125,6 +131,7 @@ export default function TodayScreen() {
                   })
                 }
                 className="w-[42px] h-[42px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
+                style={{ marginTop: 15 }}
               >
                 <IconPlus size={20} color="#1B7A32" />
               </Pressable>
@@ -169,7 +176,7 @@ export default function TodayScreen() {
                         </View>
                         <View className="flex-row gap-x-3 mt-[4px]">
                           <Text className="font-body-b text-cal text-[13px]">{fmt(totals.calories)} kcal</Text>
-                          <Text className="font-body-sb text-cost text-[13px]">{money(totals.cost, currency)}</Text>
+                          <Cost cost={totals.cost} currency={currency} className="font-body-sb text-cost text-[13px]" />
                         </View>
                       </View>
                       <Pressable

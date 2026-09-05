@@ -15,13 +15,13 @@ import {
 } from '@/db/queries';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { nutritionFor, sumNutrition } from '@/lib/nutrition';
-import { fmt, money, num, todayISO } from '@/lib/format';
+import { fmt, num, todayISO } from '@/lib/format';
 import { newId } from '@/lib/id';
 import { takePendingPick } from '@/lib/pendingPick';
 import { MEAL_TYPES, type MealType } from '@/constants/meals';
 import { AddFoodButton, Button, Card, Chip, DetailHeader, EmptyState, Field } from '@/components/ui';
 import { IconX } from '@/components/icons';
-import { MacroChips } from '@/components/nutrition';
+import { Cost, MacroChips } from '@/components/nutrition';
 import type { FoodItem } from '@/db/schema';
 
 /** A meal line item held in memory; `mealItemId` is set only for rows already in the DB. */
@@ -247,7 +247,7 @@ export default function MealBuilder() {
             </Text>
             <View className="flex-row items-baseline gap-x-2">
               <Text className="font-display-sb text-[16px] text-brand">{fmt(totals.calories)} kcal</Text>
-              <Text className="font-display-sb text-cost text-[16px]">{money(totals.cost, currency)}</Text>
+              <Cost cost={totals.cost} currency={currency} count={items.length} className="font-display-sb text-cost text-[16px]" />
             </View>
           </View>
           <MacroChips macrosOnly emphasizeMacros totals={totals} currency={currency} />

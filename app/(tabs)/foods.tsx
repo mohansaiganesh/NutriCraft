@@ -1,14 +1,14 @@
-import { useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { Pressable, SectionList, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { createFoodFromRemote, settingsQuery } from '@/db/queries';
+import { settingsQuery } from '@/db/queries';
 import { useFoodSearch } from '@/lib/useFoodSearch';
 import { AppHeader, cardShadow, EmptyState, Fab, Field, Muted } from '@/components/ui';
-import { IconPencil, IconPlus } from '@/components/icons';
-import { MacroChips } from '@/components/nutrition';
+import { IconChevronRight, IconPencil } from '@/components/icons';
+import { Cost, MacroChips } from '@/components/nutrition';
 import { nutritionFor } from '@/lib/nutrition';
-import { fmt, money, titleCase } from '@/lib/format';
+import { fmt, titleCase } from '@/lib/format';
 import type { FoodItem } from '@/db/schema';
 import { SOURCE_LABEL, type RemoteFood } from '@/lib/foodSearch';
 
@@ -20,18 +20,72 @@ export default function FoodsScreen() {
   const { data: settingsRows } = useLiveQuery(settingsQuery());
   const currency = settingsRows?.[0]?.currency ?? '$';
 
-  // Save an Open Food Facts hit as a private food, then open it to add price / adjust.
-  const addRemote = async (r: RemoteFood) => {
-    const id = await createFoodFromRemote(r);
-    router.push({ pathname: '/food/[id]', params: { id } });
-  };
+  // Open a found food in the form, PREFILLED but not yet saved — it only lands in the
+  // catalog when the user taps the save button inside.
+  const openRemote = useCallback((r: RemoteFood) => {
+    router.push({ pathname: '/food/[id]', params: { id: 'new', prefill: JSON.stringify(r) } });
+  }, []);
 
   // The "Open Food Facts" section shows only once the query is long enough to search.
   const showRemote = remoteStatus !== 'idle' && (remoteFoods.length > 0 || remoteStatus !== 'ok');
-  const sections: { kind: 'local' | 'remote'; data: Row[] }[] = [
-    { kind: 'local', data: localFoods },
-  ];
-  if (showRemote) sections.push({ kind: 'remote', data: remoteFoods });
+  const sections = useMemo<{ kind: 'local' | 'remote'; data: Row[] }[]>(() => {
+    const s: { kind: 'local' | 'remote'; data: Row[] }[] = [{ kind: 'local', data: localFoods }];
+    if (showRemote) s.push({ kind: 'remote', data: remoteFoods });
+    return s;
+  }, [localFoods, remoteFoods, showRemote]);
+
+  const keyExtractor = useCallback(
+    (item: Row, i: number) =>
+      'id' in item ? (item as FoodItem).id : `${(item as RemoteFood).remoteId}-${i}`,
+    [],
+  );
+
+  const renderItem = useCallback(
+    ({ item, section }: { item: Row; section: { kind: 'local' | 'remote' } }) =>
+      section.kind === 'local' ? (
+        <LocalFoodRow item={item as FoodItem} currency={currency} />
+      ) : (
+        <RemoteFoodRow item={item as RemoteFood} currency={currency} onAdd={openRemote} />
+      ),
+    [currency, openRemote],
+  );
+
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: { kind: 'local' | 'remote' } }) =>
+      section.kind === 'remote' ? (
+        <View className="flex-row items-center justify-between pt-2 pb-2">
+          <Text className="font-display-sb text-[13px] text-ink3 uppercase tracking-wide">
+            Online results
+          </Text>
+          {remoteStatus === 'loading' ? (
+            <Muted className="text-[12px]">Searching…</Muted>
+          ) : remoteStatus === 'error' ? (
+            <Muted className="text-[12px]">Couldn’t reach — local results only</Muted>
+          ) : remoteFoods.length > 0 ? (
+            <Muted className="text-[12px]">{remoteFoods.length} items</Muted>
+          ) : null}
+        </View>
+      ) : null,
+    [remoteStatus, remoteFoods.length],
+  );
+
+  const renderSectionFooter = useCallback(
+    ({ section }: { section: { kind: 'local' | 'remote' } }) =>
+      section.kind === 'remote' && failedSources.length > 0 && remoteFoods.length > 0 ? (
+        <Muted className="text-[12px] pb-2">{failedSources.join(', ')} unavailable</Muted>
+      ) : null,
+    [failedSources, remoteFoods.length],
+  );
+
+  const listEmpty = useMemo(
+    () => (
+      <EmptyState
+        title={q ? 'No matches' : 'No foods yet'}
+        subtitle={q ? 'Try a different search.' : 'Tap + to add your first food.'}
+      />
+    ),
+    [q],
+  );
 
   return (
     <View className="flex-1 bg-paper">
@@ -51,52 +105,32 @@ export default function FoodsScreen() {
       </View>
       <SectionList
         sections={sections}
-        keyExtractor={(item, i) =>
-          'id' in item ? (item as FoodItem).id : `${(item as RemoteFood).remoteId}-${i}`
-        }
+        keyExtractor={keyExtractor}
         contentContainerClassName="px-4 pb-24"
         keyboardShouldPersistTaps="handled"
         stickySectionHeadersEnabled={false}
-        ListEmptyComponent={
-          <EmptyState
-            title={q ? 'No matches' : 'No foods yet'}
-            subtitle={q ? 'Try a different search.' : 'Tap + to add your first food.'}
-          />
-        }
-        renderSectionHeader={({ section }) =>
-          section.kind === 'remote' ? (
-            <View className="flex-row items-center justify-between pt-2 pb-2">
-              <Text className="font-display-sb text-[13px] text-ink3 uppercase tracking-wide">
-                Online results
-                {remoteFoods.length > 0 ? (
-                  <Text className="text-ink3"> · {remoteFoods.length}</Text>
-                ) : null}
-              </Text>
-              {remoteStatus === 'loading' ? (
-                <Muted className="text-[12px]">Searching…</Muted>
-              ) : remoteStatus === 'error' ? (
-                <Muted className="text-[12px]">Couldn’t reach — local results only</Muted>
-              ) : null}
-            </View>
-          ) : null
-        }
-        renderSectionFooter={({ section }) =>
-          section.kind === 'remote' && failedSources.length > 0 && remoteFoods.length > 0 ? (
-            <Muted className="text-[12px] pb-2">{failedSources.join(', ')} unavailable</Muted>
-          ) : null
-        }
-        renderItem={({ item, section }) =>
-          section.kind === 'local'
-            ? renderLocal(item as FoodItem, currency)
-            : renderRemote(item as RemoteFood, addRemote)
-        }
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews
+        updateCellsBatchingPeriod={50}
+        ListEmptyComponent={listEmpty}
+        renderSectionHeader={renderSectionHeader}
+        renderSectionFooter={renderSectionFooter}
+        renderItem={renderItem}
       />
       <Fab onPress={() => router.push({ pathname: '/food/[id]', params: { id: 'new' } })} />
     </View>
   );
 }
 
-function renderLocal(item: FoodItem, currency: string) {
+const LocalFoodRow = React.memo(function LocalFoodRow({
+  item,
+  currency,
+}: {
+  item: FoodItem;
+  currency: string;
+}) {
   const isShared = item.userId == null;
   const per = nutritionFor(
     {
@@ -136,14 +170,25 @@ function renderLocal(item: FoodItem, currency: string) {
       <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1 mt-[2px]">
         <Muted className="text-[12px]">{titleCase(item.brand || 'Generic')}</Muted>
         <Text className="font-body-b text-cal text-[12px]">{fmt(per.calories)} kcal</Text>
-        <Text className="font-body-sb text-cost text-[12px]">{money(per.cost, currency)}</Text>
+        <Cost cost={per.cost} currency={currency} className="font-body-sb text-cost text-[12px]" />
       </View>
       <MacroChips macrosOnly totals={per} currency={currency} />
     </View>
   );
-}
+});
 
-function renderRemote(item: RemoteFood, onAdd: (r: RemoteFood) => void) {
+const RemoteFoodRow = React.memo(function RemoteFoodRow({
+  item,
+  currency,
+  onAdd,
+}: {
+  item: RemoteFood;
+  currency: string;
+  onAdd: (r: RemoteFood) => void;
+}) {
+  // Online results are normalized to per-100 g/ml so figures are comparable across sources,
+  // regardless of each provider's serving convention (item.basis is already per-100).
+  const per = nutritionFor(item.basis, 100);
   return (
     <Pressable
       onPress={() => onAdd(item)}
@@ -155,20 +200,19 @@ function renderRemote(item: RemoteFood, onAdd: (r: RemoteFood) => void) {
           <Text className="font-display-sb text-[16px] text-ink shrink" numberOfLines={1}>
             {titleCase(item.name)}
           </Text>
-          <Text className="font-body-sb text-[12px] text-ink3">({fmt(item.servingSizeG)}g)</Text>
+          <Text className="font-body-sb text-[12px] text-ink3">(100g)</Text>
           <Text className="font-body-b text-[10px] text-[#2A5A7A] bg-[#E7F1F8] border border-[#C9DEEC] rounded-full px-[7px] py-[1px]">
             {SOURCE_LABEL[item.source]}
           </Text>
         </View>
-        <View className="flex-row items-center gap-[5px] rounded-full bg-[#EEF6EC] border border-[#DCEAD4] px-[10px] py-[5px]">
-          <IconPlus size={13} color="#1B7A32" />
-          <Text className="text-[#1B7A32] font-body-b text-[12px]">Add</Text>
-        </View>
+        <IconChevronRight size={18} color="#9AA79B" />
       </View>
       <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1 mt-[2px]">
         <Muted className="text-[12px]">{titleCase(item.brand || 'Generic')}</Muted>
-        <Text className="font-body-b text-cal text-[12px]">{fmt(item.basis.calories)} kcal/100g</Text>
+        <Text className="font-body-b text-cal text-[12px]">{fmt(per.calories)} kcal</Text>
+        <Cost cost={per.cost} currency={currency} className="font-body-sb text-ink3 text-[12px]" />
       </View>
+      <MacroChips macrosOnly totals={per} currency={currency} />
     </Pressable>
   );
-}
+});

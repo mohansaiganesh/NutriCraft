@@ -430,8 +430,15 @@ export async function claimLocalData(userId: string): Promise<void> {
  */
 export function subscribeRealtime(userId: string): () => void {
   if (!isSupabaseConfigured) return () => {};
+  const topic = `sync:${userId}`;
+  // supabase.channel() REUSES a channel by topic; a leftover already-subscribed one from a prior
+  // mount/auth event makes .on('postgres_changes') throw ("cannot add ... after subscribe()").
+  // Tear down any stale one first so we always bind on a fresh, un-joined channel.
+  const stale = supabase.getChannels().find((c) => c.topic === `realtime:${topic}`);
+  if (stale) supabase.removeChannel(stale);
+
   const channel = supabase
-    .channel(`sync:${userId}`)
+    .channel(topic)
     .on('postgres_changes', { event: '*', schema: 'public' }, () => {
       syncInBackground(userId);
     })

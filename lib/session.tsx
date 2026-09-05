@@ -47,6 +47,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [email, setEmail] = useState<string | null>(null);
   // Guards `prepare` so it runs once per signed-in user, not on every auth event.
   const preparedFor = useRef<string | null>(null);
+  // Realtime subscription state, so we subscribe once per user (not per auth event) and never
+  // leak: `getSession` and `onAuthStateChange` both drive this via `ensureRealtime`.
+  const unsubRealtimeRef = useRef<(() => void) | null>(null);
+  const realtimeForRef = useRef<string | null>(null);
 
   /** Bring a just-authenticated user online: claim local data, pull cloud, ensure settings. */
   async function prepare(uid: string, mail: string | null) {
@@ -72,7 +76,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
 
   // Bootstrap.
   useEffect(() => {
-    let unsubRealtime: (() => void) | undefined;
+    // Subscribe to realtime once per user. `getSession` and `onAuthStateChange` both fire on a
+    // fresh load; without this guard the second call would re-bind the same channel topic and
+    // throw ("cannot add postgres_changes callbacks after subscribe()"), or leak a subscription.
+    function ensureRealtime(uid: string) {
+      if (realtimeForRef.current === uid) return; // already subscribed for this user
+      unsubRealtimeRef.current?.(); // tear down a prior user's subscription
+      realtimeForRef.current = uid;
+      unsubRealtimeRef.current = subscribeRealtime(uid);
+    }
+    function teardownRealtime() {
+      unsubRealtimeRef.current?.();
+      unsubRealtimeRef.current = null;
+      realtimeForRef.current = null;
+    }
 
     if (!isSupabaseConfigured) {
       // An account is required — without a backend there's nothing to sign into.
@@ -84,7 +101,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const session = data.session;
       if (session) {
         prepare(session.user.id, session.user.email ?? null);
-        unsubRealtime = subscribeRealtime(session.user.id);
+        ensureRealtime(session.user.id);
       } else {
         setStatus('signedOut');
       }
@@ -93,21 +110,20 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     const { data: authSub } = supabase.auth.onAuthStateChange((_event, session: Session | null) => {
       if (session) {
         prepare(session.user.id, session.user.email ?? null);
-        unsubRealtime?.();
-        unsubRealtime = subscribeRealtime(session.user.id);
+        ensureRealtime(session.user.id);
       } else {
         preparedFor.current = null;
         setCurrentUserId(null);
         setUserId(null);
         setEmail(null);
-        unsubRealtime?.();
+        teardownRealtime();
         setStatus('signedOut');
       }
     });
 
     return () => {
       authSub.subscription.unsubscribe();
-      unsubRealtime?.();
+      teardownRealtime();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

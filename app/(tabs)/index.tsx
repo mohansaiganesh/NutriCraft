@@ -39,6 +39,7 @@ export default function TodayScreen() {
   const settings = settingsRows?.[0];
   const allRows = (rows ?? []) as Row[];
   const dayTotals = sumNutrition(allRows.map((r) => entryTotals(r.food, r.log.grams)));
+  const dayUnpricedCount = allRows.filter((r) => !(r.food.pricePer100 > 0)).length;
   const currency = settings?.currency ?? '$';
 
   const confirmDelete = (id: string, name: string) => {
@@ -70,7 +71,12 @@ export default function TodayScreen() {
       {/* Calorie-ring hero */}
       {settings ? (
         <Card className="mb-4">
-          <TargetProgress totals={dayTotals} settings={settings} itemCount={allRows.length} />
+          <TargetProgress
+            totals={dayTotals}
+            settings={settings}
+            itemCount={allRows.length}
+            unpricedCount={dayUnpricedCount}
+          />
         </Card>
       ) : null}
 
@@ -83,62 +89,73 @@ export default function TodayScreen() {
         const unpricedCount = sectionRows.filter((r) => !(r.food.pricePer100 > 0)).length;
         const isOpen = !!open[key];
         return (
-          <Card key={key} className="mb-3">
-            <View className="flex-row items-center justify-between relative" style={{ gap: 8 }}>
-              <Pressable
-                onPress={() => setOpen((o) => ({ ...o, [key]: !o[key] }))}
-                className="flex-row items-center flex-1 active:opacity-70"
-                style={{ gap: 10 }}
+          <Card key={key} className="mb-3 p-0 overflow-hidden" style={{ backgroundColor: '#5A7D21' }}>
+            <View>
+              <View
+                className="flex-row items-center justify-between relative p-4 pb-[15px]"
+                style={{ gap: 8 }}
               >
-                <View
-                  className="w-[34px] h-[34px] rounded-xl items-center justify-center"
-                  style={{ backgroundColor: tintBg }}
+                <Pressable
+                  onPress={() => setOpen((o) => ({ ...o, [key]: !o[key] }))}
+                  className="flex-row items-center flex-1 active:opacity-70"
+                  style={{ gap: 10 }}
                 >
-                  <MealIcon name={icon} size={19} color={tint} />
-                </View>
-                <View className="flex-1">
-                  <View className="flex-row items-center" style={{ gap: 6 }}>
-                    <Text className="font-display-sb text-[17px] text-ink">{label}</Text>
-                    {isOpen ? (
-                      <IconChevronDown size={16} color="#8A9A8C" />
-                    ) : (
-                      <IconChevronRight size={16} color="#8A9A8C" />
-                    )}
+                  <View
+                    className="w-[34px] h-[34px] rounded-xl items-center justify-center"
+                    style={{
+                      backgroundColor: tintBg,
+                      marginLeft: -6,
+                      borderWidth: 1,
+                      borderColor: 'rgba(255,255,255,0.18)',
+                    }}
+                  >
+                    <MealIcon name={icon} size={19} color={tint} />
                   </View>
-                  <Text className="font-body-b text-[13px] text-ink2 mt-[1px]">
-                    {sectionRows.length} {sectionRows.length === 1 ? 'item' : 'items'} · <Text className="text-cal">{fmt(sectionTotals.calories)} kcal</Text> · <Cost cost={sectionTotals.cost} currency={currency} count={sectionRows.length} />
-                  </Text>
-                  {sectionRows.length > 0 ? (
-                    <View className="flex-row gap-x-2 mt-[3px]">
-                      <Text className="font-body-sb text-protein text-[11px]">P {fmt(sectionTotals.proteinG, 1)}g</Text>
-                      <Text className="font-body-sb text-carbs text-[11px]">C {fmt(sectionTotals.carbsG, 1)}g</Text>
-                      <Text className="font-body-sb text-fat text-[11px]">F {fmt(sectionTotals.fatG, 1)}g</Text>
-                      <Text className="font-body-sb text-fiber text-[11px]">Fib {fmt(sectionTotals.fiberG, 1)}g</Text>
+                  <View className="flex-1">
+                    <View className="flex-row items-center" style={{ gap: 6 }}>
+                      <Text className="font-display-sb text-[17px] text-white">{label}</Text>
+                      {isOpen ? (
+                        <IconChevronDown size={16} color="#E4EDD5" />
+                      ) : (
+                        <IconChevronRight size={16} color="#E4EDD5" />
+                      )}
                     </View>
-                  ) : null}
-                </View>
-              </Pressable>
-              {unpricedCount > 0 ? (
-                <Text className="absolute right-0 top-0 font-body-sb text-[12px] text-ink3">
-                  {unpricedCount} {unpricedCount === 1 ? 'item' : 'items'} prices N/A
-                </Text>
-              ) : null}
-              <Pressable
-                onPress={() =>
-                  router.push({
-                    pathname: '/pick-food',
-                    params: { mode: 'log', date, mealType: key as MealType },
-                  })
-                }
-                className="w-[42px] h-[42px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
-                style={{ marginTop: 15 }}
-              >
-                <IconPlus size={20} color="#1B7A32" />
-              </Pressable>
+                    <Text className="font-body-b text-[13px] text-white mt-[1px]">
+                      {sectionRows.length} {sectionRows.length === 1 ? 'item' : 'items'} · <Text className="text-[#D8F5B0]">{fmt(sectionTotals.calories)} kcal</Text> · <Cost cost={sectionTotals.cost} currency={currency} count={sectionRows.length} />
+                    </Text>
+                    {sectionRows.length > 0 ? (
+                      <View className="flex-row gap-x-2 mt-[3px]">
+                        <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#FFC078' }}>P</Text> {fmt(sectionTotals.proteinG, 1)}g</Text>
+                        <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#FFE066' }}>C</Text> {fmt(sectionTotals.carbsG, 1)}g</Text>
+                        <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#D0BFFF' }}>F</Text> {fmt(sectionTotals.fatG, 1)}g</Text>
+                        <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#96F2D7' }}>Fib</Text> {fmt(sectionTotals.fiberG, 1)}g</Text>
+                      </View>
+                    ) : null}
+                  </View>
+                </Pressable>
+                {unpricedCount > 0 ? (
+                  <Text className="absolute right-4 top-4 font-body-sb text-[12px] text-[#FFC9C9]">
+                    {unpricedCount} {unpricedCount === 1 ? 'item' : 'items'} prices N/A
+                  </Text>
+                ) : null}
+                <Pressable
+                  onPress={() =>
+                    router.push({
+                      pathname: '/pick-food',
+                      params: { mode: 'log', date, mealType: key as MealType },
+                    })
+                  }
+                  className="w-[42px] h-[42px] rounded-full bg-white items-center justify-center active:opacity-80"
+                  style={{ marginTop: 15, marginRight: -2 }}
+                >
+                  <IconPlus size={16} color="#5A7D21" />
+                </Pressable>
+              </View>
             </View>
 
             {isOpen ? (
-              sectionRows.length === 0 ? (
+              <View className="bg-card px-[18px] pt-[2px] pb-[10px]">
+              {sectionRows.length === 0 ? (
                 <View className="flex-row items-center flex-wrap py-2" style={{ gap: 4 }}>
                   <Muted className="text-[13px]">Tap</Muted>
                   <View className="w-[20px] h-[20px] rounded-full bg-card border border-hair items-center justify-center">
@@ -169,10 +186,10 @@ export default function TodayScreen() {
                           {titleCase(r.food.brand)}
                         </Text>
                         <View className="flex-row gap-x-3 mt-[6px]">
-                          <Text className="font-body-sb text-protein text-[13px]">P {fmt(totals.proteinG, 1)}g</Text>
-                          <Text className="font-body-sb text-carbs text-[13px]">C {fmt(totals.carbsG, 1)}g</Text>
-                          <Text className="font-body-sb text-fat text-[13px]">F {fmt(totals.fatG, 1)}g</Text>
-                          <Text className="font-body-sb text-fiber text-[13px]">Fib {fmt(totals.fiberG, 1)}g</Text>
+                          <Text className="font-body-sb text-ink text-[13px]"><Text className="text-protein font-body-b">P</Text> {fmt(totals.proteinG, 1)}g</Text>
+                          <Text className="font-body-sb text-ink text-[13px]"><Text className="text-carbs font-body-b">C</Text> {fmt(totals.carbsG, 1)}g</Text>
+                          <Text className="font-body-sb text-ink text-[13px]"><Text className="text-fat font-body-b">F</Text> {fmt(totals.fatG, 1)}g</Text>
+                          <Text className="font-body-sb text-ink text-[13px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(totals.fiberG, 1)}g</Text>
                         </View>
                         <View className="flex-row gap-x-3 mt-[4px]">
                           <Text className="font-body-b text-cal text-[13px]">{fmt(totals.calories)} kcal</Text>
@@ -198,7 +215,8 @@ export default function TodayScreen() {
                     </Pressable>
                   );
                 })
-              )
+              )}
+              </View>
             ) : null}
           </Card>
         );

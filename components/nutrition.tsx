@@ -25,10 +25,10 @@ function MacroChipsBase({
   const macroClass = emphasizeMacros ? 'font-body-b text-[15px]' : 'font-body-sb text-[13px]';
   const macros = (
     <>
-      <Text className={`text-protein ${macroClass}`}>P {fmt(totals.proteinG, 1)}g</Text>
-      <Text className={`text-carbs ${macroClass}`}>C {fmt(totals.carbsG, 1)}g</Text>
-      <Text className={`text-fat ${macroClass}`}>F {fmt(totals.fatG, 1)}g</Text>
-      <Text className={`text-fiber ${macroClass}`}>Fib {fmt(totals.fiberG, 1)}g</Text>
+      <Text className={`text-ink ${macroClass}`}><Text className="text-protein font-body-b">P</Text> {fmt(totals.proteinG, 1)}g</Text>
+      <Text className={`text-ink ${macroClass}`}><Text className="text-carbs font-body-b">C</Text> {fmt(totals.carbsG, 1)}g</Text>
+      <Text className={`text-ink ${macroClass}`}><Text className="text-fat font-body-b">F</Text> {fmt(totals.fatG, 1)}g</Text>
+      <Text className={`text-ink ${macroClass}`}><Text className="text-fiber font-body-b">Fib</Text> {fmt(totals.fiberG, 1)}g</Text>
     </>
   );
 
@@ -175,11 +175,14 @@ export function TargetProgress({
   totals,
   settings,
   itemCount,
+  unpricedCount,
 }: {
   totals: NutritionTotals;
   settings: Settings;
   /** Number of logged entries today; lets an empty day show $0.00 instead of "$ N/A". */
   itemCount?: number;
+  /** How many of today's logged entries have no price; surfaced beside "Spent today". */
+  unpricedCount?: number;
 }) {
   const left = Math.max(0, settings.targetCalories - totals.calories);
   return (
@@ -204,7 +207,14 @@ export function TargetProgress({
       </View>
 
       <View className="flex-row justify-between pt-3 mt-[14px] border-t border-[#EEF1EA]">
-        <Text className="font-body-b text-[14px] text-ink">Spent today</Text>
+        <View>
+          <Text className="font-body-b text-[14px] text-ink">Spent today</Text>
+          {unpricedCount && unpricedCount > 0 ? (
+            <Text className="font-body-sb text-[12px] text-[#E03131] mt-[2px]">
+              {unpricedCount} {unpricedCount === 1 ? 'item' : 'items'} prices not available
+            </Text>
+          ) : null}
+        </View>
         <Cost
           cost={totals.cost}
           currency={settings.currency}

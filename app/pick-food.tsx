@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BackHandler, Pressable, SectionList, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
-import { addLog, createFoodFromRemote, getFood } from '@/db/queries';
+import { addLog, addMealItem, createFoodFromRemote, getFood } from '@/db/queries';
 import { useFoodSearch } from '@/lib/useFoodSearch';
 import { setPendingPick } from '@/lib/pendingPick';
 import { nutritionFor } from '@/lib/nutrition';
@@ -20,6 +20,7 @@ export default function PickFood() {
     date?: string;
     mealType?: string;
     mealId?: string;
+    mealName?: string;
   }>();
   const [q, setQ] = useState('');
   const [selected, setSelected] = useState<FoodItem | null>(null);
@@ -43,6 +44,8 @@ export default function PickFood() {
     const g = num(grams);
     if (params.mode === 'log') {
       await addLog(params.date!, (params.mealType as MealType) ?? 'snack', selected.id, g);
+    } else if (params.mode === 'meal') {
+      await addMealItem(params.mealId!, selected.id, g);
     } else if (params.mode === 'mealDraft') {
       setPendingPick({ food: selected, grams: g });
     }
@@ -139,6 +142,10 @@ export default function PickFood() {
           {params.mode === 'log' ? (
             <Muted className="text-[13px]">
               Logging to {mealLabel(params.mealType ?? '')} · {params.date}
+            </Muted>
+          ) : params.mode === 'meal' && params.mealName ? (
+            <Muted className="text-[13px]">
+              Adding to {params.mealName.replace(/_/g, ' ')}
             </Muted>
           ) : null}
           <Button label="Add" onPress={confirm} className="mt-1" />

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { BackHandler, Pressable, SectionList, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { addLog, createFoodFromRemote, getFood } from '@/db/queries';
@@ -50,13 +50,72 @@ export default function PickFood() {
   };
 
   // Save an Open Food Facts hit as a private food, then continue to the amount step.
-  const pickRemote = async (r: RemoteFood) => {
+  const pickRemote = useCallback(async (r: RemoteFood) => {
     const id = await createFoodFromRemote(r);
     const food = await getFood(id);
     if (!food) return;
     setSelected(food);
     setGrams(String(food.servingSizeG || 100));
-  };
+  }, []);
+
+  // Pick a local/shared food, then continue to the amount step.
+  const pickLocal = useCallback((f: FoodItem) => {
+    setSelected(f);
+    setGrams(String(f.servingSizeG || 100));
+  }, []);
+
+  // The "Open Food Facts" section shows only once the query is long enough to search.
+  const showRemote = remoteStatus !== 'idle' && (remoteFoods.length > 0 || remoteStatus !== 'ok');
+  const sections = useMemo<{ kind: 'local' | 'remote'; data: Row[] }[]>(() => {
+    const s: { kind: 'local' | 'remote'; data: Row[] }[] = [{ kind: 'local', data: localFoods }];
+    if (showRemote) s.push({ kind: 'remote', data: remoteFoods });
+    return s;
+  }, [localFoods, remoteFoods, showRemote]);
+
+  const keyExtractor = useCallback(
+    (item: Row, i: number) =>
+      'id' in item ? (item as FoodItem).id : `${(item as RemoteFood).remoteId}-${i}`,
+    [],
+  );
+
+  const renderItem = useCallback(
+    ({ item, section }: { item: Row; section: { kind: 'local' | 'remote' } }) =>
+      section.kind === 'local' ? (
+        <LocalPickRow item={item as FoodItem} onPick={pickLocal} />
+      ) : (
+        <RemotePickRow item={item as RemoteFood} onPick={pickRemote} />
+      ),
+    [pickLocal, pickRemote],
+  );
+
+  const renderSectionHeader = useCallback(
+    ({ section }: { section: { kind: 'local' | 'remote' } }) =>
+      section.kind === 'remote' ? (
+        <View className="flex-row items-center justify-between pt-1 pb-2">
+          <Text className="font-display-sb text-[12px] text-ink3 uppercase tracking-wide">
+            Online results
+          </Text>
+          {remoteStatus === 'loading' ? (
+            <Muted className="text-[12px]">Searching…</Muted>
+          ) : remoteStatus === 'error' ? (
+            <Muted className="text-[12px]">Couldn’t reach — local results only</Muted>
+          ) : remoteFoods.length > 0 ? (
+            <Text className="font-display-sb text-[12px] text-ink3 flex-1 text-right">
+              {remoteFoods.length} items
+            </Text>
+          ) : null}
+        </View>
+      ) : null,
+    [remoteStatus, remoteFoods.length],
+  );
+
+  const renderSectionFooter = useCallback(
+    ({ section }: { section: { kind: 'local' | 'remote' } }) =>
+      section.kind === 'remote' && failedSources.length > 0 && remoteFoods.length > 0 ? (
+        <Muted className="text-[12px] pb-2">{failedSources.join(', ')} unavailable</Muted>
+      ) : null,
+    [failedSources, remoteFoods.length],
+  );
 
   // Step 2: amount entry for the chosen food.
   if (selected) {
@@ -89,13 +148,6 @@ export default function PickFood() {
     );
   }
 
-  // The "Open Food Facts" section shows only once the query is long enough to search.
-  const showRemote = remoteStatus !== 'idle' && (remoteFoods.length > 0 || remoteStatus !== 'ok');
-  const sections: { kind: 'local' | 'remote'; data: Row[] }[] = [
-    { kind: 'local', data: localFoods },
-  ];
-  if (showRemote) sections.push({ kind: 'remote', data: remoteFoods });
-
   // Step 1: search + pick a food.
   return (
     <View className="flex-1 bg-paper">
@@ -105,52 +157,33 @@ export default function PickFood() {
       </View>
       <SectionList
         sections={sections}
-        keyExtractor={(item, i) =>
-          'id' in item ? (item as FoodItem).id : `${(item as RemoteFood).remoteId}-${i}`
-        }
+        keyExtractor={keyExtractor}
         contentContainerClassName="px-4 pb-8"
         keyboardShouldPersistTaps="handled"
         stickySectionHeadersEnabled={false}
+        initialNumToRender={10}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews
+        updateCellsBatchingPeriod={50}
         ListEmptyComponent={
           <EmptyState title="No foods found" subtitle="Type to search your catalog or Open Food Facts." />
         }
-        renderSectionHeader={({ section }) =>
-          section.kind === 'remote' ? (
-            <View className="flex-row items-center justify-between pt-1 pb-2">
-              <Text className="font-display-sb text-[12px] text-ink3 uppercase tracking-wide">
-                Online results
-              </Text>
-              {remoteStatus === 'loading' ? (
-                <Muted className="text-[12px]">Searching…</Muted>
-              ) : remoteStatus === 'error' ? (
-                <Muted className="text-[12px]">Couldn’t reach — local results only</Muted>
-              ) : remoteFoods.length > 0 ? (
-                <Text className="font-display-sb text-[12px] text-ink3 flex-1 text-right">
-                  {remoteFoods.length} items
-                </Text>
-              ) : null}
-            </View>
-          ) : null
-        }
-        renderSectionFooter={({ section }) =>
-          section.kind === 'remote' && failedSources.length > 0 && remoteFoods.length > 0 ? (
-            <Muted className="text-[12px] pb-2">{failedSources.join(', ')} unavailable</Muted>
-          ) : null
-        }
-        renderItem={({ item, section }) =>
-          section.kind === 'local'
-            ? renderLocalRow(item as FoodItem, (f) => {
-                setSelected(f);
-                setGrams(String(f.servingSizeG || 100));
-              })
-            : renderRemoteRow(item as RemoteFood, pickRemote)
-        }
+        renderSectionHeader={renderSectionHeader}
+        renderSectionFooter={renderSectionFooter}
+        renderItem={renderItem}
       />
     </View>
   );
 }
 
-function renderLocalRow(item: FoodItem, onPick: (f: FoodItem) => void) {
+const LocalPickRow = React.memo(function LocalPickRow({
+  item,
+  onPick,
+}: {
+  item: FoodItem;
+  onPick: (f: FoodItem) => void;
+}) {
   return (
     <Pressable
       onPress={() => onPick(item)}
@@ -167,9 +200,15 @@ function renderLocalRow(item: FoodItem, onPick: (f: FoodItem) => void) {
       </View>
     </Pressable>
   );
-}
+});
 
-function renderRemoteRow(item: RemoteFood, onPick: (r: RemoteFood) => void) {
+const RemotePickRow = React.memo(function RemotePickRow({
+  item,
+  onPick,
+}: {
+  item: RemoteFood;
+  onPick: (r: RemoteFood) => void;
+}) {
   return (
     <Pressable
       onPress={() => onPick(item)}
@@ -189,4 +228,4 @@ function renderRemoteRow(item: RemoteFood, onPick: (r: RemoteFood) => void) {
       </View>
     </Pressable>
   );
-}
+});

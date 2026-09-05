@@ -4,13 +4,14 @@ import { router } from 'expo-router';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { allMealItemsQuery, mealsQuery, settingsQuery, softDeleteMeal } from '@/db/queries';
 import { nutritionFor, sumNutrition, type NutritionTotals } from '@/lib/nutrition';
-import { fmt, money } from '@/lib/format';
+import { fmt } from '@/lib/format';
+import { Cost } from '@/components/nutrition';
 import { AppHeader, cardShadow, EmptyState, Fab } from '@/components/ui';
 import { IconChevronRight, IconMeal } from '@/components/icons';
 import type { FoodItem, Meal, MealItem } from '@/db/schema';
 
 type ItemRow = { item: MealItem; food: FoodItem };
-type MealStats = { count: number; totals: NutritionTotals };
+type MealStats = { count: number; unpriced: number; totals: NutritionTotals };
 
 export default function MealsScreen() {
   const { data } = useLiveQuery(mealsQuery());
@@ -20,15 +21,16 @@ export default function MealsScreen() {
   const currency = settingsRows?.[0]?.currency ?? '$';
 
   const statsByMeal = useMemo(() => {
-    const grouped = new Map<string, NutritionTotals[]>();
+    const grouped = new Map<string, { totalsList: NutritionTotals[]; unpriced: number }>();
     for (const { item, food } of (itemRows ?? []) as ItemRow[]) {
-      const list = grouped.get(item.mealId) ?? [];
-      list.push(nutritionFor(food, item.grams));
-      grouped.set(item.mealId, list);
+      const entry = grouped.get(item.mealId) ?? { totalsList: [], unpriced: 0 };
+      entry.totalsList.push(nutritionFor(food, item.grams));
+      if (!(food.pricePer100 > 0)) entry.unpriced += 1;
+      grouped.set(item.mealId, entry);
     }
     const stats = new Map<string, MealStats>();
-    for (const [mealId, totalsList] of grouped) {
-      stats.set(mealId, { count: totalsList.length, totals: sumNutrition(totalsList) });
+    for (const [mealId, { totalsList, unpriced }] of grouped) {
+      stats.set(mealId, { count: totalsList.length, unpriced, totals: sumNutrition(totalsList) });
     }
     return stats;
   }, [itemRows]);
@@ -66,12 +68,13 @@ export default function MealsScreen() {
         renderItem={({ item }) => {
           const stats = statsByMeal.get(item.id);
           const count = stats?.count ?? 0;
+          const unpriced = stats?.unpriced ?? 0;
           const totals = stats?.totals ?? sumNutrition([]);
           return (
             <Pressable
               onPress={() => router.push({ pathname: '/meal/[id]', params: { id: item.id } })}
               onLongPress={() => confirmDeleteMeal(item.id, item.name)}
-              className="rounded-3xl bg-card border border-hair p-4 mb-3 flex-row items-center justify-between active:opacity-90"
+              className="rounded-3xl bg-card border border-hair p-4 mb-3 flex-row items-center justify-between relative active:opacity-90"
               style={cardShadow}
             >
               <View className="flex-row items-center flex-1" style={{ gap: 12 }}>
@@ -88,7 +91,7 @@ export default function MealsScreen() {
                     </Text>
                   ) : null}
                   <Text className="font-body-b text-[13px] text-ink2 mt-[3px]">
-                    {count} {count === 1 ? 'item' : 'items'} · <Text className="text-cal">{fmt(totals.calories)} kcal</Text> · {money(totals.cost, currency)}
+                    {count} {count === 1 ? 'item' : 'items'} · <Text className="text-cal">{fmt(totals.calories)} kcal</Text> · <Cost cost={totals.cost} currency={currency} count={count} />
                   </Text>
                   {count > 0 ? (
                     <View className="flex-row gap-x-2 mt-[3px]">
@@ -100,7 +103,14 @@ export default function MealsScreen() {
                   ) : null}
                 </View>
               </View>
-              <IconChevronRight size={20} color="#C2CDBF" />
+              {unpriced > 0 ? (
+                <Text className="absolute right-4 top-4 font-body-sb text-[12px] text-ink3">
+                  {unpriced} {unpriced === 1 ? 'item' : 'items'} · prices N/A
+                </Text>
+              ) : null}
+              <View style={{ marginTop: 16 }}>
+                <IconChevronRight size={26} color="#C2CDBF" />
+              </View>
             </Pressable>
           );
         }}

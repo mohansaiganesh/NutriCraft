@@ -43,6 +43,12 @@ import (service role) will populate the same shared tier.
   for instant cross-device updates.
 - Soft-deletes (`deleted = true`) propagate like any other column — nothing is ever hard
   deleted, matching the app's data rules.
+- **Never hard-delete a row in the Supabase table editor.** Sync propagates deletions only
+  as tombstones (`deleted = true` + a bumped `updated_at`); a hard delete leaves no row to
+  pull, so clients never learn it's gone and keep showing it. Delete your own **private**
+  foods **in the app** (that soft-deletes locally and syncs the tombstone up automatically);
+  to remove a **shared** row server-side, soft-delete it — see
+  `seed-shared-catalog.sql:35-40`.
 
 ## This setup is required
 An account is now mandatory — the app can't run without a backend to sign into. If `.env`

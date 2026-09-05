@@ -9,7 +9,6 @@ import {
   advanceCursorPartial,
   fromRemote as mapFromRemote,
   isRowLevelError,
-  maxIso,
   shouldApplyRemote,
   toRemote as mapToRemote,
 } from '@/lib/syncCore';
@@ -130,6 +129,24 @@ const TABLES: SyncTable[] = [
   },
 ];
 
+// Lookup from remote table name -> its SyncTable (for parent backfill on pull).
+const byRemote: Record<string, SyncTable> = Object.fromEntries(TABLES.map((t) => [t.remote, t]));
+
+/**
+ * Foreign keys a pulled child row must satisfy locally (`PRAGMA foreign_keys = ON`). Keyed by the
+ * child's remote table; each entry is a remote FK column -> the parent table it references. Used to
+ * backfill a missing parent by id when a child insert fails, closing the referential gap that opens
+ * when the child's pull cursor runs ahead of its parent's (foods/meals have no FKs of their own, so
+ * one level is enough).
+ */
+const FK_PARENTS: Record<string, { col: string; parent: string }[]> = {
+  meal_items: [
+    { col: 'meal_id', parent: 'meals' },
+    { col: 'food_item_id', parent: 'food_items' },
+  ],
+  daily_logs: [{ col: 'food_item_id', parent: 'food_items' }],
+};
+
 // --- cursor persistence -------------------------------------------------------
 
 const cursorKey = (userId: string, remote: string) => `sync:${userId}:${remote}`;
@@ -196,6 +213,39 @@ async function pushTable(t: SyncTable, userId: string): Promise<string> {
   return advanceCursorPartial(cursor, succeeded, minFailed);
 }
 
+/**
+ * A pulled child row (meal_item / daily_log) failed its local FK because a referenced parent isn't
+ * present locally yet — the child's pull cursor ran ahead of the parent's, so the parent fell outside
+ * this cycle's parent-table window. Fetch each missing parent directly by id (no cursor filter) and
+ * insert it, so the child can be retried. Returns true if any parent was newly fetched. A parent the
+ * server doesn't return (soft-deleted rows still come back; a truly-missing/inaccessible one does not)
+ * is a genuine dangling reference — logged and left for the caller to skip.
+ */
+async function backfillParents(t: SyncTable, remoteRow: Record<string, any>): Promise<boolean> {
+  const refs = FK_PARENTS[t.remote];
+  if (!refs) return false;
+  let fetchedAny = false;
+  for (const { col, parent } of refs) {
+    const parentId = remoteRow[col];
+    if (!parentId) continue;
+    const pt = byRemote[parent];
+    const localParent = await db.select({ id: pt.table.id }).from(pt.table).where(eq(pt.table.id, parentId));
+    if (localParent.length) continue; // parent already present locally — not the missing one
+
+    const { data, error } = await supabase.from(parent).select('*').eq('id', parentId).limit(1);
+    if (error || !data || data.length === 0) {
+      console.warn(
+        `[sync] pull ${t.remote} row ${remoteRow.id}: parent ${parent} ${parentId} not found on server (deleted or inaccessible)`
+      );
+      continue;
+    }
+    const parentRow = mapFromRemote(pt.fields, data[0]);
+    await db.insert(pt.table).values(parentRow).onConflictDoUpdate({ target: pt.table.id, set: parentRow });
+    fetchedAny = true;
+  }
+  return fetchedAny;
+}
+
 async function pullTable(t: SyncTable, userId: string): Promise<string> {
   const cursor = await getCursor(userId, t.remote);
   let query = supabase.from(t.remote).select('*').gt('updated_at', cursor);
@@ -207,28 +257,65 @@ async function pullTable(t: SyncTable, userId: string): Promise<string> {
   if (error) throw error;
   if (!data || data.length === 0) return cursor;
 
-  let newCursor = cursor;
+  // Row-resilient apply, mirroring pushTable's slow path: a single row that can't be written
+  // locally (e.g. a meal_item whose parent meal/food hasn't arrived yet → FOREIGN KEY failure)
+  // must NOT abort the whole table's pull. If it did, the cursor would never advance and the
+  // exact same batch would re-pull and re-throw every cycle, permanently wedging the table and
+  // blocking every newer row. Instead we skip the bad row, keep the cursor pinned just below it
+  // (so it's re-selected and retried next cycle, once its parent lands), and apply everything else.
+  const succeeded: string[] = [];
+  let minFailed: string | null = null;
   for (const remoteRow of data) {
     const remoteUpdatedAt = remoteRow.updated_at as string;
-    newCursor = maxIso(newCursor, remoteUpdatedAt);
 
-    // Last-write-wins: skip if our local copy is the same age or newer.
+    // Last-write-wins: skip if our local copy is the same age or newer. Nothing to write, so it's
+    // safe to advance the cursor past this row.
     const localRows = await db
       .select({ updatedAt: t.table.updatedAt })
       .from(t.table)
       .where(eq(t.table.id, remoteRow.id));
     const localUpdatedAt = localRows.length ? (localRows[0].updatedAt as string) : undefined;
     if (!shouldApplyRemote(localUpdatedAt, remoteUpdatedAt)) {
+      succeeded.push(remoteUpdatedAt);
       continue;
     }
 
     const localRow = mapFromRemote(t.fields, remoteRow);
-    await db
-      .insert(t.table)
-      .values(localRow)
-      .onConflictDoUpdate({ target: t.table.id, set: localRow });
+    try {
+      await db
+        .insert(t.table)
+        .values(localRow)
+        .onConflictDoUpdate({ target: t.table.id, set: localRow });
+      succeeded.push(remoteUpdatedAt);
+    } catch (rowError) {
+      // Most likely a missing FK parent (the child's cursor ran ahead of its parent's). Fetch the
+      // referenced parent(s) by id and retry once before giving up on this row.
+      let recovered = false;
+      try {
+        if (await backfillParents(t, remoteRow)) {
+          await db
+            .insert(t.table)
+            .values(localRow)
+            .onConflictDoUpdate({ target: t.table.id, set: localRow });
+          recovered = true;
+        }
+      } catch {
+        // Retry still failed (e.g. a second, genuinely-missing parent) — fall through to skip.
+      }
+      if (recovered) {
+        succeeded.push(remoteUpdatedAt);
+      } else {
+        if (minFailed === null || remoteUpdatedAt < minFailed) minFailed = remoteUpdatedAt;
+        console.warn(
+          `[sync] pull ${t.remote} row ${remoteRow.id} skipped (unresolved FK parent), will retry next cycle`,
+          rowError
+        );
+      }
+    }
   }
-  return newCursor;
+  // Advance only past rows that succeeded AND precede the earliest failure, so every failed row
+  // stays > cursor and is re-selected (and retried) next cycle.
+  return advanceCursorPartial(cursor, succeeded, minFailed);
 }
 
 // --- public API ---------------------------------------------------------------

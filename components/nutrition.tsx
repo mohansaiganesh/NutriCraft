@@ -1,3 +1,4 @@
+import React from 'react';
 import { View, Text } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import type { NutritionTotals } from '@/lib/nutrition';
@@ -5,7 +6,7 @@ import type { Settings } from '@/db/schema';
 import { fmt, money } from '@/lib/format';
 
 /** Compact colored macro chips: calories · P/C/F/fiber · cost. */
-export function MacroChips({
+function MacroChipsBase({
   totals,
   currency = '$',
   macrosOnly = false,
@@ -36,7 +37,7 @@ export function MacroChips({
       <View className="mt-[6px]">
         <View className="flex-row gap-x-3">
           <Text className="font-body-b text-cal text-[13px]">{fmt(totals.calories)} kcal</Text>
-          <Text className="font-body-sb text-cost text-[13px]">{money(totals.cost, currency)}</Text>
+          <Cost cost={totals.cost} currency={currency} className="font-body-sb text-cost text-[13px]" />
         </View>
         <View className="flex-row flex-wrap gap-x-3 gap-y-1 mt-[6px]">{macros}</View>
       </View>
@@ -50,9 +51,45 @@ export function MacroChips({
       )}
       {macros}
       {!macrosOnly && (
-        <Text className="font-body-sb text-cost text-[13px]">{money(totals.cost, currency)}</Text>
+        <Cost cost={totals.cost} currency={currency} className="font-body-sb text-cost text-[13px]" />
       )}
     </View>
+  );
+}
+
+/** Rendered once per row in the Foods list — memoized so rows can bail out of re-render. */
+export const MacroChips = React.memo(MacroChipsBase);
+
+/**
+ * Cost display. A real price renders as money; `$0` renders as red "$ N/A" to mark an
+ * unknown price. Pass `count` for an aggregate (meal/section/day): an empty group (0 items)
+ * shows a normal $0.00, while a non-empty all-unpriced group still shows red "$ N/A".
+ */
+export function Cost({
+  cost,
+  currency = '$',
+  className,
+  count,
+}: {
+  cost: number;
+  currency?: string;
+  className?: string;
+  /** Number of items in the aggregate; omit for a single food. 0 → show $0.00, not N/A. */
+  count?: number;
+}) {
+  const na = count !== 0 && !(cost > 0); // 0/negative/NaN cost on a non-empty group → unknown
+  return (
+    <Text className={className}>
+      {na ? (
+        <>
+          {currency}
+          {' '}
+          <Text style={{ color: '#E03131' }}>N/A</Text>
+        </>
+      ) : (
+        money(cost, currency)
+      )}
+    </Text>
   );
 }
 
@@ -137,9 +174,12 @@ function MacroBar({
 export function TargetProgress({
   totals,
   settings,
+  itemCount,
 }: {
   totals: NutritionTotals;
   settings: Settings;
+  /** Number of logged entries today; lets an empty day show $0.00 instead of "$ N/A". */
+  itemCount?: number;
 }) {
   const left = Math.max(0, settings.targetCalories - totals.calories);
   return (
@@ -165,9 +205,12 @@ export function TargetProgress({
 
       <View className="flex-row justify-between pt-3 mt-[14px] border-t border-[#EEF1EA]">
         <Text className="font-body-b text-[14px] text-ink">Spent today</Text>
-        <Text className="font-display-sb text-[18px] text-ink">
-          {money(totals.cost, settings.currency)}
-        </Text>
+        <Cost
+          cost={totals.cost}
+          currency={settings.currency}
+          count={itemCount}
+          className="font-display-sb text-[18px] text-ink"
+        />
       </View>
     </View>
   );

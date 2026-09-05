@@ -3,13 +3,15 @@ import { Alert, ScrollView, Text, View } from 'react-native';
 import { router, useLocalSearchParams } from 'expo-router';
 import { createFood, getFood, softDeleteFood, updateFood } from '@/db/queries';
 import { buildBasisFromLabel, type PerHundredBasis } from '@/lib/nutrition';
-import { fmt, money, num } from '@/lib/format';
+import type { RemoteFood } from '@/lib/foodSearch';
+import { fmt, num } from '@/lib/format';
+import { Cost } from '@/components/nutrition';
 import { Button, Chip, DetailHeader, Field, Muted } from '@/components/ui';
 
 type Mode = 'label' | 'per100';
 
 export default function FoodForm() {
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, prefill } = useLocalSearchParams<{ id: string; prefill?: string }>();
   const isNew = id === 'new';
 
   const [mode, setMode] = useState<Mode>('label');
@@ -50,6 +52,30 @@ export default function FoodForm() {
       setPrice(String(f.pricePer100));
     })();
   }, [id]);
+
+  // A food found via online search is passed in as a JSON param — prefill the form but do
+  // NOT persist anything. It's written to the catalog only when the user taps "Add food".
+  useEffect(() => {
+    if (!isNew || !prefill) return;
+    try {
+      const r = JSON.parse(prefill) as RemoteFood; // { name, brand, servingSizeG, basis }
+      // The remote basis is already per-100 — edit those values directly.
+      setMode('per100');
+      setName(r.name);
+      setBrand(r.brand === 'Generic' ? '' : r.brand);
+      setBarcode(''); // barcode is dropped on save anyway (food_items.barcode is global-unique)
+      setServingSize(String(r.servingSizeG));
+      setCalories(String(r.basis.calories));
+      setProtein(String(r.basis.proteinG));
+      setCarbs(String(r.basis.carbsG));
+      setFat(String(r.basis.fatG));
+      setFiber(String(r.basis.fiberG));
+      setSodium(String(r.basis.sodiumMg));
+      setPrice(String(r.basis.pricePer100));
+    } catch {
+      /* malformed param — leave the form blank */
+    }
+  }, [prefill]);
 
   const basis: PerHundredBasis =
     mode === 'label'
@@ -175,7 +201,7 @@ export default function FoodForm() {
         <Text className="font-body-sb text-[13.5px] text-[#245C33] leading-5">
           {fmt(basis.calories, 1)} kcal · P {fmt(basis.proteinG, 1)} · C {fmt(basis.carbsG, 1)} · F{' '}
           {fmt(basis.fatG, 1)} · Fib {fmt(basis.fiberG, 1)} · Na {fmt(basis.sodiumMg, 1)}mg ·{' '}
-          {money(basis.pricePer100)}/100g
+          <Cost cost={basis.pricePer100} />/100g
         </Text>
       </View>
 

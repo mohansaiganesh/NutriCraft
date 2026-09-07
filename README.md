@@ -22,6 +22,64 @@ First launch runs the DB migration; a new account opens to an empty catalog and 
 | `npm run typecheck`  | `tsc --noEmit`                                            |
 | `npm run db:generate`| Regenerate Drizzle migrations after editing `db/schema.ts` |
 
+## Building a release APK (Android)
+
+This is a prebuild workflow — the native `android/` project is generated from `app.json`.
+
+**Prerequisites (one-time):** JDK 17 and the Android SDK (easiest via Android Studio). Set
+`ANDROID_HOME` and accept the SDK licenses:
+
+```bash
+# ANDROID_HOME is typically C:\Users\<you>\AppData\Local\Android\Sdk
+sdkmanager --licenses
+```
+
+**1. Generate `android/` if it's missing** (it's regenerated from `app.json`):
+
+```bash
+npx expo prebuild --platform android   # add --clean to regenerate from scratch
+```
+
+Hand edits inside `android/` are wiped by `--clean` — treat `app.json` (and config plugins) as the
+source of truth.
+
+**2. Build the APK:**
+
+```bash
+cd android
+./gradlew assembleRelease           # PowerShell: .\gradlew.bat assembleRelease
+```
+
+Output: `android/app/build/outputs/apk/release/app-release.apk`.
+
+> **Caveat:** the default `release` build type is signed with the **debug** keystore
+> (`android/app/build.gradle`). That APK is fine for testing / sideloading, but **not** for the
+> Play Store — see "For distribution" below.
+
+**Minimum-size APK for modern devices** — build only 64-bit ARM and turn on minify + resource
+shrinking (both off by default):
+
+```bash
+./gradlew assembleRelease \
+  -PreactNativeArchitectures=arm64-v8a \
+  -Pandroid.enableMinifyInReleaseBuilds=true \
+  -Pandroid.enableShrinkResourcesInReleaseBuilds=true
+```
+
+- `arm64-v8a` only drops the other ABIs — the biggest single saving. It won't run on 32-bit
+  devices or the default x86_64 emulators.
+- Minify (R8) + resource shrinking can strip something a native module reflects on — test the
+  built APK and add keep rules to `android/app/proguard-rules.pro` if needed.
+- To make these permanent, move the three flags into `android/gradle.properties`.
+
+**One-liner alternative:** `npx expo run:android --variant release` (prebuild + build + install on a
+connected device/emulator).
+
+**For distribution:** generate your own release keystore and wire it into `signingConfigs` in
+`android/app/build.gradle`. For the Play Store, prefer an AAB (`./gradlew bundleRelease`) so
+per-device splits minimize delivered size. Bump `versionCode` in `build.gradle` for each upload, and
+replace the placeholder package `com.anonymous.nutricraft`.
+
 ## Architecture
 
 - **Storage:** local-first SQLite via `expo-sqlite`, queried with **Drizzle ORM**.

@@ -79,23 +79,23 @@ export default function MealsScreen() {
           const rows = itemsByMeal.get(item.id) ?? [];
           const isOpen = !!open[item.id];
           return (
-            <Card className="mb-3 p-0 overflow-hidden" style={{ backgroundColor: '#5A7D21' }}>
+            <Card className="mb-4 p-0 overflow-hidden" style={{ backgroundColor: '#5A7D21' }}>
               <View>
                 <View
-                  className="flex-row items-center justify-between relative p-4 pb-[15px]"
-                  style={{ gap: 8 }}
+                  className="flex-row items-center justify-between relative px-4 pt-[5px] pb-[10px]"
+                  style={{ gap: 4 }}
                 >
                   <Pressable
                     onPress={() => setOpen((o) => ({ ...o, [item.id]: !o[item.id] }))}
                     onLongPress={() => confirmDeleteMeal(item.id, item.name)}
                     className="flex-row items-center flex-1 active:opacity-70"
-                    style={{ gap: 10 }}
+                    style={{ gap: 8 }}
                   >
                     <View
                       className="w-[34px] h-[34px] rounded-xl items-center justify-center"
                       style={{
                         backgroundColor: '#DCFCE7',
-                        marginLeft: -6,
+                        marginLeft: -16,
                         borderWidth: 1,
                         borderColor: 'rgba(255,255,255,0.18)',
                       }}
@@ -112,6 +112,15 @@ export default function MealsScreen() {
                         ) : (
                           <IconChevronRight size={16} color="#E4EDD5" />
                         )}
+                        {unpriced > 0 ? (
+                          <Text
+                            className="font-body-sb text-[11px] text-[#FFC9C9]"
+                            numberOfLines={1}
+                            style={{ flexShrink: 1 }}
+                          >
+                            {unpriced} {unpriced === 1 ? 'item' : 'items'} · prices N/A
+                          </Text>
+                        ) : null}
                       </View>
                       {item.notes ? (
                         <Text className="font-body text-[12.5px] text-[#DCE7C6] mt-[2px]" numberOfLines={1}>
@@ -122,7 +131,7 @@ export default function MealsScreen() {
                         {count} {count === 1 ? 'item' : 'items'} · <Text className="text-[#D8F5B0]">{fmt(totals.calories)} kcal</Text> · <Cost cost={totals.cost} currency={currency} count={count} />
                       </Text>
                       {count > 0 ? (
-                        <View className="flex-row gap-x-2 mt-[3px]">
+                        <View className="flex-row gap-x-1.5 mt-[3px]">
                           <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#FFC078' }}>P</Text> {fmt(totals.proteinG, 1)}g</Text>
                           <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#FFE066' }}>C</Text> {fmt(totals.carbsG, 1)}g</Text>
                           <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#D0BFFF' }}>F</Text> {fmt(totals.fatG, 1)}g</Text>
@@ -131,11 +140,6 @@ export default function MealsScreen() {
                       ) : null}
                     </View>
                   </Pressable>
-                  {unpriced > 0 ? (
-                    <Text className="absolute right-4 top-4 font-body-sb text-[12px] text-[#FFC9C9]">
-                      {unpriced} {unpriced === 1 ? 'item' : 'items'} · prices N/A
-                    </Text>
-                  ) : null}
                   <Pressable
                     onPress={() =>
                       router.push({
@@ -144,7 +148,7 @@ export default function MealsScreen() {
                       })
                     }
                     className="w-[42px] h-[42px] rounded-full bg-white items-center justify-center active:opacity-80"
-                    style={{ marginTop: 15, marginRight: -2 }}
+                    style={{ marginTop: 10, marginRight: -16 }}
                   >
                     <IconPlus size={16} color="#5A7D21" />
                   </Pressable>

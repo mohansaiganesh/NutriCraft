@@ -165,6 +165,26 @@ export function IconPlus({ size, color, strokeWidth = 2.6 }: IconProps) {
   );
 }
 
+export function IconMinus({ size, color, strokeWidth = 2.6 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Line x1="5" y1="12" x2="19" y2="12" />
+    </Svg>
+  );
+}
+
+export function IconTrash({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M3 6h18" />
+      <Path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2" />
+      <Path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+      <Line x1="10" y1="11" x2="10" y2="17" />
+      <Line x1="14" y1="11" x2="14" y2="17" />
+    </Svg>
+  );
+}
+
 export function IconPencil({ size, color, strokeWidth = 2.1 }: IconProps) {
   return (
     <Svg {...base(size, color, strokeWidth)}>

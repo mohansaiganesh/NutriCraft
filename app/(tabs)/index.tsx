@@ -3,12 +3,13 @@ import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { dayLogsQuery, removeLog, settingsQuery } from '@/db/queries';
+import { dayLogsQuery, removeLog, settingsQuery, updateLog } from '@/db/queries';
 import { nutritionFor, sumNutrition, type NutritionTotals } from '@/lib/nutrition';
 import { addDaysISO, dateLabel, fmt, titleCase, todayISO } from '@/lib/format';
 import { MEAL_TYPES, type MealType } from '@/constants/meals';
 import { Card, Muted } from '@/components/ui';
-import { IconChevronDown, IconChevronLeft, IconChevronRight, IconPencil, IconPlus, MealIcon } from '@/components/icons';
+import { GramStepper } from '@/components/GramStepper';
+import { IconChevronDown, IconChevronLeft, IconChevronRight, IconPlus, IconTrash, MealIcon } from '@/components/icons';
 import { Cost, TargetProgress } from '@/components/nutrition';
 import type { FoodItem } from '@/db/schema';
 
@@ -171,52 +172,46 @@ export default function TodayScreen() {
                 sectionRows.map((r) => {
                   const totals = entryTotals(r.food, r.log.grams);
                   return (
-                    <Pressable
+                    <View
                       key={r.log.id}
-                      onLongPress={() => confirmDelete(r.log.id, r.food.name)}
                       className="py-[11px] border-t border-[#F0F3EC] flex-row items-center"
                       style={{ gap: 10 }}
                     >
                       <View className="flex-1">
-                        <View className="flex-row items-baseline shrink">
-                          <Text className="font-body-sb text-ink text-[16px] shrink" numberOfLines={1}>
+                        <View className="flex-row items-center" style={{ gap: 8 }}>
+                          <Text className="font-body-sb text-ink text-[16px] flex-1" numberOfLines={1}>
                             {titleCase(r.food.name)}
                           </Text>
-                          <Text className="font-body-sb text-ink3 text-[13px] ml-2">
-                            ({fmt(r.log.grams)} g)
-                          </Text>
+                          <GramStepper
+                            grams={r.log.grams}
+                            onChange={(g) => updateLog(r.log.id, { grams: g })}
+                          />
                         </View>
                         <Text className="font-body text-ink3 text-[11px] mt-[1px]" numberOfLines={1}>
                           {titleCase(r.food.brand)}
                         </Text>
-                        <View className="flex-row gap-x-3 mt-[6px]">
-                          <Text className="font-body-sb text-ink text-[13px]"><Text className="text-protein font-body-b">P</Text> {fmt(totals.proteinG, 1)}g</Text>
-                          <Text className="font-body-sb text-ink text-[13px]"><Text className="text-carbs font-body-b">C</Text> {fmt(totals.carbsG, 1)}g</Text>
-                          <Text className="font-body-sb text-ink text-[13px]"><Text className="text-fat font-body-b">F</Text> {fmt(totals.fatG, 1)}g</Text>
-                          <Text className="font-body-sb text-ink text-[13px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(totals.fiberG, 1)}g</Text>
-                        </View>
-                        <View className="flex-row gap-x-3 mt-[4px]">
-                          <Text className="font-body-b text-cal text-[13px]">{fmt(totals.calories)} kcal</Text>
-                          <Cost cost={totals.cost} currency={currency} className="font-body-sb text-cost text-[13px]" />
+                        <View className="flex-row items-center justify-between mt-[6px]">
+                          <View className="flex-1">
+                            <View className="flex-row gap-x-3">
+                              <Text className="font-body-sb text-ink text-[13px]"><Text className="text-protein font-body-b">P</Text> {fmt(totals.proteinG, 1)}g</Text>
+                              <Text className="font-body-sb text-ink text-[13px]"><Text className="text-carbs font-body-b">C</Text> {fmt(totals.carbsG, 1)}g</Text>
+                              <Text className="font-body-sb text-ink text-[13px]"><Text className="text-fat font-body-b">F</Text> {fmt(totals.fatG, 1)}g</Text>
+                              <Text className="font-body-sb text-ink text-[13px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(totals.fiberG, 1)}g</Text>
+                            </View>
+                            <View className="flex-row gap-x-3 mt-[4px]">
+                              <Text className="font-body-b text-cal text-[13px]">{fmt(totals.calories)} kcal</Text>
+                              <Cost cost={totals.cost} currency={currency} className="font-body-sb text-cost text-[13px]" />
+                            </View>
+                          </View>
+                          <Pressable
+                            onPress={() => confirmDelete(r.log.id, r.food.name)}
+                            className="w-[36px] h-[36px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80 -mr-[13px]"
+                          >
+                            <IconTrash size={16} color="#E03131" />
+                          </Pressable>
                         </View>
                       </View>
-                      <Pressable
-                        onPress={() =>
-                          router.push({
-                            pathname: '/log/[id]',
-                            params: {
-                              id: r.log.id,
-                              grams: String(r.log.grams),
-                              mealType: r.log.mealType,
-                              name: r.food.name,
-                            },
-                          })
-                        }
-                        className="w-[36px] h-[36px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
-                      >
-                        <IconPencil size={16} color="#1B7A32" />
-                      </Pressable>
-                    </Pressable>
+                    </View>
                   );
                 })
               )}

@@ -70,12 +70,15 @@ export function Cost({
   currency = '$',
   className,
   count,
+  naColor = '#E03131',
 }: {
   cost: number;
   currency?: string;
   className?: string;
   /** Number of items in the aggregate; omit for a single food. 0 → show $0.00, not N/A. */
   count?: number;
+  /** Color of the "N/A" marker for an unknown price. Defaults to red. */
+  naColor?: string;
 }) {
   const na = count !== 0 && !(cost > 0); // 0/negative/NaN cost on a non-empty group → unknown
   return (
@@ -84,7 +87,7 @@ export function Cost({
         <>
           {currency}
           {' '}
-          <Text style={{ color: '#E03131' }}>N/A</Text>
+          <Text style={{ color: naColor }}>N/A</Text>
         </>
       ) : (
         money(cost, currency)
@@ -184,16 +187,33 @@ export function TargetProgress({
   /** How many of today's logged entries have no price; surfaced beside "Spent today". */
   unpricedCount?: number;
 }) {
-  const left = Math.max(0, settings.targetCalories - totals.calories);
+  const diff = settings.targetCalories - totals.calories;
+  const over = diff < 0;
+  const amount = Math.abs(diff);
+  const macrosOver = [
+    { label: 'protein', over: totals.proteinG - settings.targetProteinG, target: settings.targetProteinG },
+    { label: 'carbs', over: totals.carbsG - settings.targetCarbsG, target: settings.targetCarbsG },
+    { label: 'fats', over: totals.fatG - settings.targetFatG, target: settings.targetFatG },
+    { label: 'fiber', over: totals.fiberG - settings.targetFiberG, target: settings.targetFiberG },
+  ].filter((m) => m.target > 0 && m.over > 0);
   return (
     <View>
-      <View className="flex-row items-start justify-between">
-        <Text className="font-body-b text-[12px] tracking-wide text-ink2 uppercase">
-          Today's intake
-        </Text>
-        <View className="rounded-full px-3 py-[6px] bg-[#EAF7EC]">
-          <Text className="font-body-b text-[12.5px] text-[#1B7A32]">{fmt(left)} kcal left</Text>
+      <Text className="font-body-b text-[12px] tracking-wide text-ink2 uppercase text-center">
+        Today's intake
+      </Text>
+      <View className="flex-row items-center justify-center mt-2" style={{ gap: 4 }}>
+        <View className="rounded-full px-3 py-[6px]" style={{ backgroundColor: over ? '#FCE9E9' : '#EAF7EC' }}>
+          <Text className="font-body-b text-[12.5px]" style={{ color: over ? '#C92A2A' : '#1B7A32' }}>
+            {over ? '+' : '-'}{fmt(amount)} kcal
+          </Text>
         </View>
+        {macrosOver.map((m) => (
+          <View key={m.label} className="rounded-full px-3 py-[6px]" style={{ backgroundColor: '#FCE9E9' }}>
+            <Text className="font-body-b text-[12.5px]" style={{ color: '#C92A2A' }}>
+              +{fmt(m.over, 1)}g {m.label}
+            </Text>
+          </View>
+        ))}
       </View>
 
       <View className="flex-row items-center mt-3" style={{ gap: 20 }}>

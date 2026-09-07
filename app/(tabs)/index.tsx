@@ -131,7 +131,7 @@ export default function TodayScreen() {
                       ) : null}
                     </View>
                     <Text className="font-body-b text-[13px] text-white mt-[1px]">
-                      {sectionRows.length} {sectionRows.length === 1 ? 'item' : 'items'} · <Text className="text-[#D8F5B0]">{fmt(sectionTotals.calories)} kcal</Text> · <Cost cost={sectionTotals.cost} currency={currency} count={sectionRows.length} />
+                      {sectionRows.length} {sectionRows.length === 1 ? 'item' : 'items'} · <Text className="text-[#D8F5B0]">{fmt(sectionTotals.calories)} kcal</Text> · <Cost cost={sectionTotals.cost} currency={currency} count={sectionRows.length} naColor="#FFC9C9" />
                     </Text>
                     {sectionRows.length > 0 ? (
                       <View className="flex-row gap-x-1.5 mt-[3px]">

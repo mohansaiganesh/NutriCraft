@@ -12,6 +12,7 @@ function MacroChipsBase({
   macrosOnly = false,
   split = false,
   emphasizeMacros = false,
+  compact = false,
 }: {
   totals: NutritionTotals;
   currency?: string;
@@ -21,8 +22,14 @@ function MacroChipsBase({
   split?: boolean;
   /** When true, render the macros bold and larger. */
   emphasizeMacros?: boolean;
+  /** When true, render the macros a step smaller (11px) to match the compact card scale. */
+  compact?: boolean;
 }) {
-  const macroClass = emphasizeMacros ? 'font-body-b text-[15px]' : 'font-body-sb text-[13px]';
+  const macroClass = emphasizeMacros
+    ? 'font-body-b text-[15px]'
+    : compact
+      ? 'font-body-sb text-[11px]'
+      : 'font-body-sb text-[13px]';
   const macros = (
     <>
       <Text className={`text-ink ${macroClass}`}><Text className="text-protein font-body-b">P</Text> {fmt(totals.proteinG, 1)}g</Text>
@@ -106,7 +113,7 @@ function CalorieRing({
   target: number;
   size?: number;
 }) {
-  const stroke = 14;
+  const stroke = 9;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   const pct = target > 0 ? Math.min(1, value / target) : 0;
@@ -131,7 +138,7 @@ function CalorieRing({
       </Svg>
       <View className="absolute items-center">
         <Text className="font-display text-[32px] leading-[34px] text-ink">{fmt(value)}</Text>
-        <Text className="font-body text-[12px] text-ink3 mt-[2px]">of {fmt(target)} kcal</Text>
+        <Text className="font-body text-[13px] text-ink3 mt-[1px]">of {fmt(target)} kcal</Text>
       </View>
     </View>
   );
@@ -153,12 +160,12 @@ function MacroBar({
   const pct = target > 0 ? Math.min(100, (value / target) * 100) : 0;
   const over = target > 0 && value > target;
   return (
-    <View className="mb-[11px]">
-      <View className="flex-row justify-between mb-[5px]">
-        <Text className="font-body-b text-[13px]" style={{ color: over ? '#E03131' : color }}>
+    <View className="mb-[6px]">
+      <View className="flex-row justify-between mb-[2px]">
+        <Text className="font-body-b text-[18px]" style={{ color: over ? '#E03131' : color }}>
           {label}
         </Text>
-        <Text className="font-body-sb text-[13px] text-ink2">
+        <Text className="font-body-sb text-[18px] text-ink2">
           {fmt(value, unit === 'g' ? 1 : 0)} / {fmt(target)}
           {unit}
         </Text>
@@ -198,26 +205,23 @@ export function TargetProgress({
   ].filter((m) => m.target > 0 && m.over > 0);
   return (
     <View>
-      <Text className="font-body-b text-[12px] tracking-wide text-ink2 uppercase text-center">
-        Today's intake
-      </Text>
-      <View className="flex-row items-center justify-center mt-2" style={{ gap: 4 }}>
+      <View className="flex-row items-center justify-center" style={{ gap: 4 }}>
         <View className="rounded-full px-3 py-[6px]" style={{ backgroundColor: over ? '#FCE9E9' : '#EAF7EC' }}>
-          <Text className="font-body-b text-[12.5px]" style={{ color: over ? '#C92A2A' : '#1B7A32' }}>
+          <Text className="font-body-b text-[17px]" style={{ color: over ? '#C92A2A' : '#1B7A32' }}>
             {over ? '+' : '-'}{fmt(amount)} kcal
           </Text>
         </View>
         {macrosOver.map((m) => (
           <View key={m.label} className="rounded-full px-3 py-[6px]" style={{ backgroundColor: '#FCE9E9' }}>
-            <Text className="font-body-b text-[12.5px]" style={{ color: '#C92A2A' }}>
+            <Text className="font-body-b text-[17px]" style={{ color: '#C92A2A' }}>
               +{fmt(m.over, 1)}g {m.label}
             </Text>
           </View>
         ))}
       </View>
 
-      <View className="flex-row items-center mt-3" style={{ gap: 20 }}>
-        <CalorieRing value={totals.calories} target={settings.targetCalories} />
+      <View className="flex-row items-center mt-2" style={{ gap: 16 }}>
+        <CalorieRing value={totals.calories} target={settings.targetCalories} size={140} />
         <View className="flex-1">
           <MacroBar label="Protein" value={totals.proteinG} target={settings.targetProteinG} unit="g" color="#E8590C" />
           <MacroBar label="Carbs" value={totals.carbsG} target={settings.targetCarbsG} unit="g" color="#F08C00" />
@@ -226,11 +230,11 @@ export function TargetProgress({
         </View>
       </View>
 
-      <View className="flex-row justify-between pt-3 mt-[14px] border-t border-[#EEF1EA]">
+      <View className="flex-row justify-between items-center pt-[6px] mt-[6px] border-t border-[#EEF1EA]">
         <View>
-          <Text className="font-body-b text-[14px] text-ink">Spent today</Text>
+          <Text className="font-body-b text-[18px] text-ink">Spent today</Text>
           {unpricedCount && unpricedCount > 0 ? (
-            <Text className="font-body-sb text-[12px] text-[#E03131] mt-[2px]">
+            <Text className="font-body-sb text-[13px] text-[#E03131] mt-[2px]">
               {unpricedCount} {unpricedCount === 1 ? 'item' : 'items'} prices not available
             </Text>
           ) : null}

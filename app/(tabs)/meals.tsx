@@ -4,6 +4,7 @@ import { router } from 'expo-router';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import {
   allMealItemsQuery,
+  applyMealToDay,
   mealsQuery,
   removeMealItem,
   settingsQuery,
@@ -11,10 +12,13 @@ import {
   updateMealItemGrams,
 } from '@/db/queries';
 import { nutritionFor, sumNutrition, type NutritionTotals } from '@/lib/nutrition';
-import { fmt, titleCase } from '@/lib/format';
+import { dateLabel, fmt, titleCase, todayISO } from '@/lib/format';
+import { mealLabel, type MealType } from '@/constants/meals';
 import { Cost } from '@/components/nutrition';
-import { AppHeader, Card, EmptyState, Fab, Muted } from '@/components/ui';
+import { AppHeader, Button, Card, EmptyState, Fab, Muted } from '@/components/ui';
 import { GramStepper } from '@/components/GramStepper';
+import { CalendarField } from '@/components/CalendarField';
+import { MealTypeField } from '@/components/MealTypeField';
 import { IconChevronDown, IconChevronRight, IconMeal, IconPlus, IconTrash } from '@/components/icons';
 import type { FoodItem, Meal, MealItem } from '@/db/schema';
 
@@ -28,6 +32,11 @@ export default function MealsScreen() {
   const meals = (data ?? []) as Meal[];
   const currency = settingsRows?.[0]?.currency ?? '$';
   const [open, setOpen] = useState<Record<string, boolean>>({});
+  const [logState, setLogState] = useState<Record<string, { date: string; type: MealType }>>({});
+
+  const getLog = (id: string) => logState[id] ?? { date: todayISO(), type: 'breakfast' as MealType };
+  const setLog = (id: string, patch: Partial<{ date: string; type: MealType }>) =>
+    setLogState((s) => ({ ...s, [id]: { ...getLog(id), ...patch } }));
 
   const { statsByMeal, itemsByMeal } = useMemo(() => {
     const grouped = new Map<string, { totalsList: NutritionTotals[]; unpriced: number }>();
@@ -53,6 +62,15 @@ export default function MealsScreen() {
     router.push({ pathname: '/meal/[id]', params: { id: 'new' } });
   };
 
+  const logMealNow = async (meal: Meal) => {
+    const { date, type } = getLog(meal.id);
+    const n = await applyMealToDay(meal.id, date, type);
+    Alert.alert(
+      'Logged',
+      `${meal.name} — ${n} ${n === 1 ? 'item' : 'items'} added to ${mealLabel(type)} on ${dateLabel(date)}.`,
+    );
+  };
+
   const confirmDeleteMeal = (id: string, name: string) => {
     Alert.alert('Delete meal', `Delete “${name}”?`, [
       { text: 'Cancel', style: 'cancel' },
@@ -69,17 +87,17 @@ export default function MealsScreen() {
 
   return (
     <View className="flex-1 bg-paper">
+      <View className="px-4 pt-2">
+        <AppHeader
+          kicker="Templates"
+          title="Meals"
+          subtitle="Build reusable meals and log them in one tap."
+        />
+      </View>
       <FlatList
         data={meals}
         keyExtractor={(m) => m.id}
         contentContainerClassName="px-4 pb-24"
-        ListHeaderComponent={
-          <AppHeader
-            kicker="Templates"
-            title="Meals"
-            subtitle="Build reusable meals and log them in one tap."
-          />
-        }
         ListEmptyComponent={
           <EmptyState
             title="No meal templates yet"
@@ -93,11 +111,12 @@ export default function MealsScreen() {
           const totals = stats?.totals ?? sumNutrition([]);
           const rows = itemsByMeal.get(item.id) ?? [];
           const isOpen = !!open[item.id];
+          const log = getLog(item.id);
           return (
             <Card className="mb-4 p-0 overflow-hidden" style={{ backgroundColor: '#5A7D21' }}>
               <View>
                 <View
-                  className="flex-row items-center justify-between relative px-4 pt-[5px] pb-[10px]"
+                  className="flex-row items-center justify-between relative px-4 pt-[1px] pb-[3px]"
                   style={{ gap: 4 }}
                 >
                   <Pressable
@@ -119,7 +138,7 @@ export default function MealsScreen() {
                     </View>
                     <View className="flex-1">
                       <View className="flex-row items-center" style={{ gap: 6 }}>
-                        <Text className="font-display-sb text-[17px] text-white shrink" numberOfLines={1}>
+                        <Text className="font-display-sb text-[15px] text-white shrink" numberOfLines={1}>
                           {item.name}
                         </Text>
                         {isOpen ? (
@@ -142,15 +161,15 @@ export default function MealsScreen() {
                           {item.notes}
                         </Text>
                       ) : null}
-                      <Text className="font-body-b text-[13px] text-white mt-[1px]">
+                      <Text className="font-body-b text-[12px] text-white mt-[1px]">
                         {count} {count === 1 ? 'item' : 'items'} · <Text className="text-[#D8F5B0]">{fmt(totals.calories)} kcal</Text> · <Cost cost={totals.cost} currency={currency} count={count} />
                       </Text>
                       {count > 0 ? (
                         <View className="flex-row gap-x-1.5 mt-[3px]">
-                          <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#FFC078' }}>P</Text> {fmt(totals.proteinG, 1)}g</Text>
-                          <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#FFE066' }}>C</Text> {fmt(totals.carbsG, 1)}g</Text>
-                          <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#D0BFFF' }}>F</Text> {fmt(totals.fatG, 1)}g</Text>
-                          <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#96F2D7' }}>Fib</Text> {fmt(totals.fiberG, 1)}g</Text>
+                          <Text className="font-body-sb text-[#F2F7E9] text-[11px]"><Text className="font-body-b" style={{ color: '#FFC078' }}>P</Text> {fmt(totals.proteinG, 1)}g</Text>
+                          <Text className="font-body-sb text-[#F2F7E9] text-[11px]"><Text className="font-body-b" style={{ color: '#FFE066' }}>C</Text> {fmt(totals.carbsG, 1)}g</Text>
+                          <Text className="font-body-sb text-[#F2F7E9] text-[11px]"><Text className="font-body-b" style={{ color: '#D0BFFF' }}>F</Text> {fmt(totals.fatG, 1)}g</Text>
+                          <Text className="font-body-sb text-[#F2F7E9] text-[11px]"><Text className="font-body-b" style={{ color: '#96F2D7' }}>Fib</Text> {fmt(totals.fiberG, 1)}g</Text>
                         </View>
                       ) : null}
                     </View>
@@ -186,12 +205,12 @@ export default function MealsScreen() {
                     return (
                       <View
                         key={r.item.id}
-                        className="py-[11px] border-t border-[#F0F3EC] flex-row items-center"
+                        className="py-[7px] border-t border-[#F0F3EC] flex-row items-center"
                         style={{ gap: 10 }}
                       >
                         <View className="flex-1">
                           <View className="flex-row items-center" style={{ gap: 8 }}>
-                            <Text className="font-body-sb text-ink text-[16px] flex-1" numberOfLines={1}>
+                            <Text className="font-body-sb text-ink text-[14px] flex-1" numberOfLines={1}>
                               {titleCase(r.food.name)}
                             </Text>
                             <GramStepper
@@ -204,23 +223,23 @@ export default function MealsScreen() {
                               {titleCase(r.food.brand)}
                             </Text>
                           ) : null}
-                          <View className="flex-row items-center justify-between mt-[6px]">
+                          <View className="flex-row items-center justify-between mt-[4px]">
                             <View className="flex-1">
                               <View className="flex-row gap-x-3">
-                                <Text className="font-body-sb text-ink text-[13px]"><Text className="text-protein font-body-b">P</Text> {fmt(itemTotals.proteinG, 1)}g</Text>
-                                <Text className="font-body-sb text-ink text-[13px]"><Text className="text-carbs font-body-b">C</Text> {fmt(itemTotals.carbsG, 1)}g</Text>
-                                <Text className="font-body-sb text-ink text-[13px]"><Text className="text-fat font-body-b">F</Text> {fmt(itemTotals.fatG, 1)}g</Text>
-                                <Text className="font-body-sb text-ink text-[13px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(itemTotals.fiberG, 1)}g</Text>
+                                <Text className="font-body-sb text-ink text-[11px]"><Text className="text-protein font-body-b">P</Text> {fmt(itemTotals.proteinG, 1)}g</Text>
+                                <Text className="font-body-sb text-ink text-[11px]"><Text className="text-carbs font-body-b">C</Text> {fmt(itemTotals.carbsG, 1)}g</Text>
+                                <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fat font-body-b">F</Text> {fmt(itemTotals.fatG, 1)}g</Text>
+                                <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(itemTotals.fiberG, 1)}g</Text>
                               </View>
-                              <View className="flex-row gap-x-3 mt-[4px]">
-                                <Text className="font-body-b text-cal text-[13px]">{fmt(itemTotals.calories)} kcal</Text>
-                                <Cost cost={itemTotals.cost} currency={currency} className="font-body-sb text-cost text-[13px]" />
+                              <View className="flex-row gap-x-3 mt-[3px]">
+                                <Text className="font-body-b text-cal text-[11px]">{fmt(itemTotals.calories)} kcal</Text>
+                                <Cost cost={itemTotals.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
                               </View>
                             </View>
                             <Pressable
                               onPress={() => confirmDeleteItem(r.item.id, r.food.name)}
                               hitSlop={8}
-                              className="w-[36px] h-[36px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80 -mr-[13px]"
+                              className="w-[30px] h-[30px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80 -mr-[13px]"
                             >
                               <IconTrash size={16} color="#E03131" />
                             </Pressable>
@@ -230,6 +249,17 @@ export default function MealsScreen() {
                     );
                   })
                 )}
+                {rows.length > 0 ? (
+                  <View className="pt-[11px] mt-[3px] border-t border-[#F0F3EC]">
+                    <View className="flex-row items-center" style={{ gap: 8 }}>
+                      <CalendarField className="flex-1" value={log.date} onChange={(d) => setLog(item.id, { date: d })} />
+                      <MealTypeField className="shrink-0" value={log.type} onChange={(t) => setLog(item.id, { type: t })} />
+                    </View>
+                    <View className="mt-[10px]">
+                      <Button label="Log meal to a day" variant="secondary" onPress={() => logMealNow(item)} className="py-[9px] bg-[#D8F5B0] border-[#BFE39A]" textClassName="text-black" />
+                    </View>
+                  </View>
+                ) : null}
                 </View>
               ) : null}
             </Card>

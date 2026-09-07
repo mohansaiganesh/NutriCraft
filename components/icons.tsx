@@ -84,6 +84,25 @@ export function IconGear({ size, color, strokeWidth = 2.1 }: IconProps) {
   );
 }
 
+export function IconTarget({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Circle cx="12" cy="12" r="9" />
+      <Circle cx="12" cy="12" r="5" />
+      <Circle cx="12" cy="12" r="1.4" fill={color ?? '#16241A'} />
+    </Svg>
+  );
+}
+
+export function IconUser({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Circle cx="12" cy="8" r="4" />
+      <Path d="M4 21a8 8 0 0 1 16 0" />
+    </Svg>
+  );
+}
+
 export function IconSunrise({ size, color, strokeWidth = 2 }: IconProps) {
   return (
     <Svg {...base(size, color, strokeWidth)}>
@@ -247,6 +266,28 @@ export function IconMeal({ size, color, strokeWidth = 2 }: IconProps) {
       <Path d="M8 3v6a3 3 0 0 1-4 3" />
       <Path d="M8 3v18" />
       <Path d="M20 3c-2 0-3 2-3 5s1 4 3 4v9" />
+    </Svg>
+  );
+}
+
+export function IconCalendar({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M4 6.5A1.5 1.5 0 0 1 5.5 5H18.5A1.5 1.5 0 0 1 20 6.5V19a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />
+      <Path d="M4 9.5h16" />
+      <Path d="M8 3v4" />
+      <Path d="M16 3v4" />
+    </Svg>
+  );
+}
+
+export function IconChart({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M4 4v15a1 1 0 0 0 1 1h15" />
+      <Path d="M8 16v-4" />
+      <Path d="M12.5 16V8" />
+      <Path d="M17 16v-6" />
     </Svg>
   );
 }

@@ -6,7 +6,7 @@ import { settingsQuery } from '@/db/queries';
 import { useFoodSearch } from '@/lib/useFoodSearch';
 import { AppHeader, cardShadow, EmptyState, Fab, Field, Muted } from '@/components/ui';
 import { IconChevronRight, IconPencil } from '@/components/icons';
-import { Cost, MacroChips } from '@/components/nutrition';
+import { Cost } from '@/components/nutrition';
 import { nutritionFor } from '@/lib/nutrition';
 import { fmt, titleCase } from '@/lib/format';
 import type { FoodItem } from '@/db/schema';
@@ -148,10 +148,10 @@ const LocalFoodRow = React.memo(function LocalFoodRow({
     <View className="rounded-3xl bg-card border border-hair p-4 mb-3" style={cardShadow}>
       <View className="flex-row justify-between items-center">
         <View className="flex-1 pr-2 flex-row items-baseline gap-2">
-          <Text className="font-display-sb text-[16px] text-ink shrink" numberOfLines={1}>
+          <Text className="font-display-sb text-[15px] text-ink shrink" numberOfLines={1}>
             {titleCase(item.name)}
           </Text>
-          <Text className="font-body-sb text-[12px] text-ink3">({fmt(item.servingSizeG)}g)</Text>
+          <Text className="font-body-sb text-[11px] text-ink3">({fmt(item.servingSizeG)}g)</Text>
           {isShared ? (
             <Text className="font-body-b text-[10px] text-[#7A5A1E] bg-[#FBF3E4] border border-[#EAD9B8] rounded-full px-[7px] py-[1px]">
               SHARED
@@ -167,12 +167,21 @@ const LocalFoodRow = React.memo(function LocalFoodRow({
           <Text className="text-[#1B7A32] font-body-b text-[12px]">{isShared ? 'View' : 'Edit'}</Text>
         </Pressable>
       </View>
-      <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1 mt-[2px]">
-        <Muted className="text-[12px]">{titleCase(item.brand || 'Generic')}</Muted>
-        <Text className="font-body-b text-cal text-[12px]">{fmt(per.calories)} kcal</Text>
-        <Cost cost={per.cost} currency={currency} className="font-body-sb text-cost text-[12px]" />
+      {item.brand ? (
+        <Text className="font-body text-ink3 text-[11px] -mt-[2px]" numberOfLines={1}>
+          {titleCase(item.brand)}
+        </Text>
+      ) : null}
+      <View className="flex-row gap-x-3 mt-[4px]">
+        <Text className="font-body-sb text-ink text-[11px]"><Text className="text-protein font-body-b">P</Text> {fmt(per.proteinG, 1)}g</Text>
+        <Text className="font-body-sb text-ink text-[11px]"><Text className="text-carbs font-body-b">C</Text> {fmt(per.carbsG, 1)}g</Text>
+        <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fat font-body-b">F</Text> {fmt(per.fatG, 1)}g</Text>
+        <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(per.fiberG, 1)}g</Text>
       </View>
-      <MacroChips macrosOnly totals={per} currency={currency} />
+      <View className="flex-row gap-x-3 mt-[3px]">
+        <Text className="font-body-b text-cal text-[11px]">{fmt(per.calories)} kcal</Text>
+        <Cost cost={per.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
+      </View>
     </View>
   );
 });
@@ -197,22 +206,31 @@ const RemoteFoodRow = React.memo(function RemoteFoodRow({
     >
       <View className="flex-row justify-between items-center">
         <View className="flex-1 pr-2 flex-row items-baseline gap-2">
-          <Text className="font-display-sb text-[16px] text-ink shrink" numberOfLines={1}>
+          <Text className="font-display-sb text-[15px] text-ink shrink" numberOfLines={1}>
             {titleCase(item.name)}
           </Text>
-          <Text className="font-body-sb text-[12px] text-ink3">(100g)</Text>
+          <Text className="font-body-sb text-[11px] text-ink3">(100g)</Text>
           <Text className="font-body-b text-[10px] text-[#2A5A7A] bg-[#E7F1F8] border border-[#C9DEEC] rounded-full px-[7px] py-[1px]">
             {SOURCE_LABEL[item.source]}
           </Text>
         </View>
         <IconChevronRight size={18} color="#9AA79B" />
       </View>
-      <View className="flex-row flex-wrap items-center gap-x-3 gap-y-1 mt-[2px]">
-        <Muted className="text-[12px]">{titleCase(item.brand || 'Generic')}</Muted>
-        <Text className="font-body-b text-cal text-[12px]">{fmt(per.calories)} kcal</Text>
-        <Cost cost={per.cost} currency={currency} className="font-body-sb text-ink3 text-[12px]" />
+      {item.brand ? (
+        <Text className="font-body text-ink3 text-[11px] -mt-[2px]" numberOfLines={1}>
+          {titleCase(item.brand)}
+        </Text>
+      ) : null}
+      <View className="flex-row gap-x-3 mt-[4px]">
+        <Text className="font-body-sb text-ink text-[11px]"><Text className="text-protein font-body-b">P</Text> {fmt(per.proteinG, 1)}g</Text>
+        <Text className="font-body-sb text-ink text-[11px]"><Text className="text-carbs font-body-b">C</Text> {fmt(per.carbsG, 1)}g</Text>
+        <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fat font-body-b">F</Text> {fmt(per.fatG, 1)}g</Text>
+        <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(per.fiberG, 1)}g</Text>
       </View>
-      <MacroChips macrosOnly totals={per} currency={currency} />
+      <View className="flex-row gap-x-3 mt-[3px]">
+        <Text className="font-body-b text-cal text-[11px]">{fmt(per.calories)} kcal</Text>
+        <Cost cost={per.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
+      </View>
     </Pressable>
   );
 });

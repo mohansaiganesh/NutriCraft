@@ -1,15 +1,16 @@
 import { useState } from 'react';
-import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
+import { Alert, Pressable, ScrollView, Text, useWindowDimensions, View } from 'react-native';
 import { router } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { dayLogsQuery, removeLog, settingsQuery, updateLog } from '@/db/queries';
 import { nutritionFor, sumNutrition, type NutritionTotals } from '@/lib/nutrition';
-import { addDaysISO, dateLabel, fmt, titleCase, todayISO } from '@/lib/format';
+import { dateLabel, fmt, titleCase, todayISO } from '@/lib/format';
 import { MEAL_TYPES, type MealType } from '@/constants/meals';
 import { Card, Muted } from '@/components/ui';
 import { GramStepper } from '@/components/GramStepper';
-import { IconChevronDown, IconChevronLeft, IconChevronRight, IconPlus, IconTrash, MealIcon } from '@/components/icons';
+import { CalendarField } from '@/components/CalendarField';
+import { IconChevronDown, IconChevronRight, IconPlus, IconTrash, IconUser, MealIcon } from '@/components/icons';
 import { Cost, TargetProgress } from '@/components/nutrition';
 import type { FoodItem } from '@/db/schema';
 
@@ -17,6 +18,35 @@ type Row = { log: { id: string; grams: number; mealType: string }; food: FoodIte
 
 function entryTotals(food: FoodItem, grams: number): NutritionTotals {
   return nutritionFor(food, grams);
+}
+
+/**
+ * Uniformly downscales its child to fit the height its parent gives it (never upscales).
+ * Measures the available box + the child's natural size, then applies a `scale` transform
+ * anchored top-left; the inner width is grown to `box.w / scale` so the content re-fills the
+ * full width after the transform instead of shrinking toward the center.
+ */
+function ScaleToFit({ children }: { children: React.ReactNode }) {
+  const [box, setBox] = useState({ w: 0, h: 0 });
+  const [content, setContent] = useState({ w: 0, h: 0 });
+  const scale = content.h > 0 && box.h > 0 ? Math.min(1, box.h / content.h) : 1;
+  return (
+    <View
+      className="flex-1"
+      onLayout={(e) => setBox({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+    >
+      <View
+        onLayout={(e) => setContent({ w: e.nativeEvent.layout.width, h: e.nativeEvent.layout.height })}
+        style={{
+          transform: [{ scale }],
+          transformOrigin: 'top left',
+          width: scale < 1 && box.w > 0 ? box.w / scale : undefined,
+        }}
+      >
+        {children}
+      </View>
+    </View>
+  );
 }
 
 function NavButton({ onPress, children }: { onPress: () => void; children: React.ReactNode }) {
@@ -32,6 +62,8 @@ function NavButton({ onPress, children }: { onPress: () => void; children: React
 
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
+  const { height: screenH } = useWindowDimensions();
+  const headerH = screenH * 0.38;
   const [date, setDate] = useState(todayISO());
   const [open, setOpen] = useState<Record<string, boolean>>({});
   const { data: settingsRows } = useLiveQuery(settingsQuery());
@@ -51,37 +83,36 @@ export default function TodayScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-paper" contentContainerClassName="px-4 pb-24">
-      {/* Date navigator */}
-      <View
-        className="flex-row items-center justify-between mb-4"
-        style={{ paddingTop: insets.top + 10 }}
-      >
-        <NavButton onPress={() => setDate((d) => addDaysISO(d, -1))}>
-          <IconChevronLeft size={20} color="#3A4A3D" />
-        </NavButton>
-        <Pressable onPress={() => setDate(todayISO())} className="items-center">
-          <Text className="font-display text-[22px] text-ink">{dateLabel(date)}</Text>
-          <Text className="font-body text-[12px] text-ink3 mt-[1px]">{date}</Text>
-        </Pressable>
-        <NavButton onPress={() => setDate((d) => addDaysISO(d, 1))}>
-          <IconChevronRight size={20} color="#3A4A3D" />
-        </NavButton>
+    <View className="flex-1 bg-paper">
+      {/* Fixed header: date navigator + calorie-ring hero, sized to 30% of screen height */}
+      <View className="px-4" style={{ paddingTop: insets.top }}>
+        <View style={{ height: headerH }}>
+          {/* Date navigator */}
+          <View className="flex-row items-center justify-between mt-[10px] mb-4">
+            <CalendarField value={date} onChange={setDate} className="py-[5px]" textClassName="font-body-b text-[14px]" />
+            <NavButton onPress={() => router.push('/account')}>
+              <IconUser size={20} color="#3A4A3D" />
+            </NavButton>
+          </View>
+
+          {/* Calorie-ring hero — fills remaining space, content scaled to fit */}
+          {settings ? (
+            <Card className="flex-1 px-[14px] py-[10px] overflow-hidden" style={{ minHeight: 0 }}>
+              <ScaleToFit>
+                <TargetProgress
+                  totals={dayTotals}
+                  settings={settings}
+                  itemCount={allRows.length}
+                  unpricedCount={dayUnpricedCount}
+                />
+              </ScaleToFit>
+            </Card>
+          ) : null}
+        </View>
       </View>
 
-      {/* Calorie-ring hero */}
-      {settings ? (
-        <Card className="mb-4">
-          <TargetProgress
-            totals={dayTotals}
-            settings={settings}
-            itemCount={allRows.length}
-            unpricedCount={dayUnpricedCount}
-          />
-        </Card>
-      ) : null}
-
-      {/* Meal sections */}
+      {/* Scrolling meal sections */}
+      <ScrollView className="flex-1" contentContainerClassName="px-4 pt-4 pb-24">
       {MEAL_TYPES.map(({ key, label, icon, tint, tintBg }) => {
         const sectionRows = allRows.filter((r) => r.log.mealType === key);
         const sectionTotals = sumNutrition(
@@ -93,7 +124,7 @@ export default function TodayScreen() {
           <Card key={key} className="mb-4 p-0 overflow-hidden" style={{ backgroundColor: '#5A7D21' }}>
             <View>
               <View
-                className="flex-row items-center justify-between relative px-4 pt-[5px] pb-[10px]"
+                className="flex-row items-center justify-between relative px-4 pt-[1px] pb-[3px]"
                 style={{ gap: 4 }}
               >
                 <Pressable
@@ -114,7 +145,7 @@ export default function TodayScreen() {
                   </View>
                   <View className="flex-1">
                     <View className="flex-row items-center" style={{ gap: 6 }}>
-                      <Text className="font-display-sb text-[17px] text-white">{label}</Text>
+                      <Text className="font-display-sb text-[15px] text-white">{label}</Text>
                       {isOpen ? (
                         <IconChevronDown size={16} color="#E4EDD5" />
                       ) : (
@@ -130,15 +161,15 @@ export default function TodayScreen() {
                         </Text>
                       ) : null}
                     </View>
-                    <Text className="font-body-b text-[13px] text-white mt-[1px]">
+                    <Text className="font-body-b text-[12px] text-white mt-[1px]">
                       {sectionRows.length} {sectionRows.length === 1 ? 'item' : 'items'} · <Text className="text-[#D8F5B0]">{fmt(sectionTotals.calories)} kcal</Text> · <Cost cost={sectionTotals.cost} currency={currency} count={sectionRows.length} naColor="#FFC9C9" />
                     </Text>
                     {sectionRows.length > 0 ? (
                       <View className="flex-row gap-x-1.5 mt-[3px]">
-                        <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#FFC078' }}>P</Text> {fmt(sectionTotals.proteinG, 1)}g</Text>
-                        <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#FFE066' }}>C</Text> {fmt(sectionTotals.carbsG, 1)}g</Text>
-                        <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#D0BFFF' }}>F</Text> {fmt(sectionTotals.fatG, 1)}g</Text>
-                        <Text className="font-body-sb text-[#F2F7E9] text-[13px]"><Text className="font-body-b" style={{ color: '#96F2D7' }}>Fib</Text> {fmt(sectionTotals.fiberG, 1)}g</Text>
+                        <Text className="font-body-sb text-[#F2F7E9] text-[11px]"><Text className="font-body-b" style={{ color: '#FFC078' }}>P</Text> {fmt(sectionTotals.proteinG, 1)}g</Text>
+                        <Text className="font-body-sb text-[#F2F7E9] text-[11px]"><Text className="font-body-b" style={{ color: '#FFE066' }}>C</Text> {fmt(sectionTotals.carbsG, 1)}g</Text>
+                        <Text className="font-body-sb text-[#F2F7E9] text-[11px]"><Text className="font-body-b" style={{ color: '#D0BFFF' }}>F</Text> {fmt(sectionTotals.fatG, 1)}g</Text>
+                        <Text className="font-body-sb text-[#F2F7E9] text-[11px]"><Text className="font-body-b" style={{ color: '#96F2D7' }}>Fib</Text> {fmt(sectionTotals.fiberG, 1)}g</Text>
                       </View>
                     ) : null}
                   </View>
@@ -174,12 +205,12 @@ export default function TodayScreen() {
                   return (
                     <View
                       key={r.log.id}
-                      className="py-[11px] border-t border-[#F0F3EC] flex-row items-center"
+                      className="py-[7px] border-t border-[#F0F3EC] flex-row items-center"
                       style={{ gap: 10 }}
                     >
                       <View className="flex-1">
                         <View className="flex-row items-center" style={{ gap: 8 }}>
-                          <Text className="font-body-sb text-ink text-[16px] flex-1" numberOfLines={1}>
+                          <Text className="font-body-sb text-ink text-[14px] flex-1" numberOfLines={1}>
                             {titleCase(r.food.name)}
                           </Text>
                           <GramStepper
@@ -190,22 +221,22 @@ export default function TodayScreen() {
                         <Text className="font-body text-ink3 text-[11px] mt-[1px]" numberOfLines={1}>
                           {titleCase(r.food.brand)}
                         </Text>
-                        <View className="flex-row items-center justify-between mt-[6px]">
+                        <View className="flex-row items-center justify-between mt-[4px]">
                           <View className="flex-1">
                             <View className="flex-row gap-x-3">
-                              <Text className="font-body-sb text-ink text-[13px]"><Text className="text-protein font-body-b">P</Text> {fmt(totals.proteinG, 1)}g</Text>
-                              <Text className="font-body-sb text-ink text-[13px]"><Text className="text-carbs font-body-b">C</Text> {fmt(totals.carbsG, 1)}g</Text>
-                              <Text className="font-body-sb text-ink text-[13px]"><Text className="text-fat font-body-b">F</Text> {fmt(totals.fatG, 1)}g</Text>
-                              <Text className="font-body-sb text-ink text-[13px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(totals.fiberG, 1)}g</Text>
+                              <Text className="font-body-sb text-ink text-[11px]"><Text className="text-protein font-body-b">P</Text> {fmt(totals.proteinG, 1)}g</Text>
+                              <Text className="font-body-sb text-ink text-[11px]"><Text className="text-carbs font-body-b">C</Text> {fmt(totals.carbsG, 1)}g</Text>
+                              <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fat font-body-b">F</Text> {fmt(totals.fatG, 1)}g</Text>
+                              <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(totals.fiberG, 1)}g</Text>
                             </View>
-                            <View className="flex-row gap-x-3 mt-[4px]">
-                              <Text className="font-body-b text-cal text-[13px]">{fmt(totals.calories)} kcal</Text>
-                              <Cost cost={totals.cost} currency={currency} className="font-body-sb text-cost text-[13px]" />
+                            <View className="flex-row gap-x-3 mt-[3px]">
+                              <Text className="font-body-b text-cal text-[11px]">{fmt(totals.calories)} kcal</Text>
+                              <Cost cost={totals.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
                             </View>
                           </View>
                           <Pressable
                             onPress={() => confirmDelete(r.log.id, r.food.name)}
-                            className="w-[36px] h-[36px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80 -mr-[13px]"
+                            className="w-[30px] h-[30px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80 -mr-[13px]"
                           >
                             <IconTrash size={16} color="#E03131" />
                           </Pressable>
@@ -220,6 +251,7 @@ export default function TodayScreen() {
           </Card>
         );
       })}
-    </ScrollView>
+      </ScrollView>
+    </View>
   );
 }

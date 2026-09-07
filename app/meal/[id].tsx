@@ -3,7 +3,6 @@ import { Alert, Pressable, ScrollView, Text, TextInput, View } from 'react-nativ
 import { router, useFocusEffect, useLocalSearchParams, useNavigation } from 'expo-router';
 import {
   addMealItem,
-  applyMealToDay,
   createMeal,
   getMeal,
   mealItemsQuery,
@@ -15,11 +14,10 @@ import {
 } from '@/db/queries';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { nutritionFor, sumNutrition } from '@/lib/nutrition';
-import { fmt, num, todayISO } from '@/lib/format';
+import { fmt, num } from '@/lib/format';
 import { newId } from '@/lib/id';
 import { takePendingPick } from '@/lib/pendingPick';
-import { MEAL_TYPES, type MealType } from '@/constants/meals';
-import { AddFoodButton, Button, Card, Chip, DetailHeader, EmptyState, Field } from '@/components/ui';
+import { AddFoodButton, Button, Card, DetailHeader, EmptyState, Field, Muted } from '@/components/ui';
 import { IconX } from '@/components/icons';
 import { Cost, MacroChips } from '@/components/nutrition';
 import type { FoodItem } from '@/db/schema';
@@ -82,7 +80,6 @@ export default function MealBuilder() {
     items: [],
   });
   const [loaded, setLoaded] = useState(false);
-  const [target, setTarget] = useState<MealType>('breakfast');
 
   const { data: settingsRows } = useLiveQuery(settingsQuery());
   const currency = settingsRows?.[0]?.currency ?? '$';
@@ -162,14 +159,14 @@ export default function MealBuilder() {
   const removeItem = (key: string) => setItems((prev) => prev.filter((i) => i.key !== key));
 
   const save = async () => {
-    if (!name.trim()) return;
+    if (!name.trim() || items.length === 0) return;
     if (isNew) {
       const mealId = await createMeal(name);
       for (const it of items) {
         await addMealItem(mealId, it.food.id, it.grams);
       }
       isDirtyRef.current = false;
-      router.replace({ pathname: '/meal/[id]', params: { id: mealId } });
+      router.back();
       return;
     }
 
@@ -206,11 +203,6 @@ export default function MealBuilder() {
       items: reconciled.map((d) => ({ foodId: d.food.id, grams: d.grams })),
     });
     isDirtyRef.current = false;
-  };
-
-  const logToday = async () => {
-    const count = await applyMealToDay(id, todayISO(), target);
-    Alert.alert('Logged', `Added ${count} item${count === 1 ? '' : 's'} to today's ${target}.`);
   };
 
   const remove = () => {
@@ -270,23 +262,16 @@ export default function MealBuilder() {
         </Card>
 
         {isNew || dirty ? (
-          <Button
-            label={isNew ? 'Save meal' : 'Save changes'}
-            onPress={save}
-            disabled={!name.trim()}
-          />
-        ) : null}
-
-        {!isNew && !dirty ? (
-          <Card>
-            <Text className="font-display-sb text-[16px] text-ink mb-2">Log to today</Text>
-            <View className="flex-row flex-wrap mb-1">
-              {MEAL_TYPES.map((m) => (
-                <Chip key={m.key} label={m.label} active={target === m.key} onPress={() => setTarget(m.key)} />
-              ))}
-            </View>
-            <Button label="Log this meal to today" onPress={logToday} />
-          </Card>
+          <View className="gap-[6px]">
+            <Button
+              label={isNew ? 'Save meal' : 'Save changes'}
+              onPress={save}
+              disabled={!name.trim() || items.length === 0}
+            />
+            {items.length === 0 ? (
+              <Muted className="text-[12.5px] text-center">Add at least one item to save.</Muted>
+            ) : null}
+          </View>
         ) : null}
 
         {!isNew ? <Button label="Delete meal" variant="danger" onPress={remove} /> : null}

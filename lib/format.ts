@@ -35,8 +35,8 @@ export function addDaysISO(iso: string, delta: number): string {
   return todayISO(dt);
 }
 
-/** Friendly label: "Today", "Yesterday", or "Mon, Aug 25". */
-export function dateLabel(iso: string): string {
+/** Friendly label: "Today", "Yesterday", or "Mon, Aug 25" (add the year with `withYear`). */
+export function dateLabel(iso: string, withYear = false): string {
   const today = todayISO();
   if (iso === today) return 'Today';
   if (iso === addDaysISO(today, -1)) return 'Yesterday';
@@ -47,6 +47,7 @@ export function dateLabel(iso: string): string {
     weekday: 'short',
     month: 'short',
     day: 'numeric',
+    ...(withYear ? { year: 'numeric' } : {}),
   });
 }
 

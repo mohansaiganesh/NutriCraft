@@ -21,7 +21,7 @@ export function GramStepper({ grams, onChange }: { grams: number; onChange: (g: 
     <View className="flex-row items-center -mr-[13px]" style={{ gap: 4 }}>
       <Pressable
         onPress={() => bump(-STEP)}
-        className="w-[26px] h-[26px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
+        className="w-[22px] h-[22px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
       >
         <IconMinus size={13} color="#1B7A32" />
       </Pressable>
@@ -50,7 +50,7 @@ export function GramStepper({ grams, onChange }: { grams: number; onChange: (g: 
 
       <Pressable
         onPress={() => bump(STEP)}
-        className="w-[26px] h-[26px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
+        className="w-[22px] h-[22px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
       >
         <IconPlus size={13} color="#1B7A32" />
       </Pressable>

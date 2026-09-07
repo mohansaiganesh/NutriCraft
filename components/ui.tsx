@@ -98,12 +98,14 @@ export function Button({
   variant = 'primary',
   disabled = false,
   className = '',
+  textClassName = '',
 }: {
   label: string;
   onPress: () => void;
   variant?: 'primary' | 'secondary' | 'danger';
   disabled?: boolean;
   className?: string;
+  textClassName?: string;
 }) {
   const base = 'rounded-2xl px-4 py-[14px] items-center active:opacity-90';
   const styles =
@@ -125,7 +127,7 @@ export function Button({
       className={`${base} ${styles} ${disabled ? 'opacity-40' : ''} ${className}`}
       style={variant === 'primary' ? primaryShadow : undefined}
     >
-      <Text className={`${textStyles} text-[15px]`}>{label}</Text>
+      <Text className={`${textStyles} text-[15px] ${textClassName}`}>{label}</Text>
     </Pressable>
   );
 }

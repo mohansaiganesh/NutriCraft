@@ -190,12 +190,12 @@ export default function MealsScreen() {
               </View>
 
               {isOpen ? (
-                <View className="bg-card px-[18px] pt-[2px] pb-[10px]">
+                <View className={`bg-card px-[18px] ${rows.length === 0 ? 'py-[6px]' : 'pt-[2px] pb-[10px]'}`}>
                 {rows.length === 0 ? (
-                  <View className="flex-row items-center flex-wrap py-2" style={{ gap: 4 }}>
+                  <View className="flex-row items-center flex-wrap" style={{ gap: 4 }}>
                     <Muted className="text-[13px]">Tap</Muted>
-                    <View className="w-[20px] h-[20px] rounded-full bg-brand items-center justify-center">
-                      <IconPlus size={13} color="#FFFFFF" />
+                    <View className="w-[20px] h-[20px] rounded-full bg-card border border-hair items-center justify-center">
+                      <IconPlus size={13} color="#1B7A32" />
                     </View>
                     <Muted className="text-[13px]">to add food to this meal.</Muted>
                   </View>

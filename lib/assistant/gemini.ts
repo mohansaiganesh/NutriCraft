@@ -44,8 +44,15 @@ export interface GeminiError {
   message: string;
 }
 
+/** Token accounting from the response's usageMetadata (absent on models that don't report it). */
+export interface GeminiUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 export type GeminiResult =
-  | { ok: true; parts: GeminiPart[] }
+  | { ok: true; parts: GeminiPart[]; usage?: GeminiUsage }
   | { ok: false; error: GeminiError };
 
 /** Sleep that resolves early (rejects) if the external signal aborts during a retry backoff. */
@@ -70,6 +77,8 @@ export async function callGemini(opts: {
   apiKey: string;
   model: string;
   signal?: AbortSignal;
+  /** Fired just before each transient-5xx backoff, so the UI can show the retry. Fire-and-forget. */
+  onRetry?: (info: { attempt: number; delayMs: number; status: number }) => void;
 }): Promise<GeminiResult> {
   const url = `${GEMINI_BASE}/models/${opts.model}:generateContent`;
 
@@ -123,8 +132,14 @@ export async function callGemini(opts: {
       if (res.status === 429) return { ok: false, error: { kind: 'rate_limit', message } };
       // Transient server error — retry with exponential backoff + jitter before giving up.
       if (res.status >= 500 && attempt < MAX_RETRIES && !opts.signal?.aborted) {
+        const delayMs = 500 * 2 ** attempt + Math.random() * 250;
         try {
-          await backoff(500 * 2 ** attempt + Math.random() * 250, opts.signal);
+          opts.onRetry?.({ attempt: attempt + 1, delayMs, status: res.status });
+        } catch {
+          /* a throwing observer must never break the retry path */
+        }
+        try {
+          await backoff(delayMs, opts.signal);
           continue;
         } catch {
           return { ok: false, error: { kind: 'network', message: 'Request cancelled.' } };
@@ -143,7 +158,15 @@ export async function callGemini(opts: {
           error: { kind: 'bad_response', message: reason ? `No answer returned (${reason}).` : 'Empty response from Gemini.' },
         };
       }
-      return { ok: true, parts: parts as GeminiPart[] };
+      const u = data?.usageMetadata;
+      const usage: GeminiUsage | undefined = u
+        ? {
+            inputTokens: u.promptTokenCount ?? 0,
+            outputTokens: u.candidatesTokenCount ?? 0,
+            totalTokens: u.totalTokenCount ?? 0,
+          }
+        : undefined;
+      return { ok: true, parts: parts as GeminiPart[], usage };
     } catch {
       return { ok: false, error: { kind: 'bad_response', message: 'Could not read the Gemini response.' } };
     }

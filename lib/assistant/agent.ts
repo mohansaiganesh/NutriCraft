@@ -4,8 +4,11 @@
  * repeat until the model returns a plain text answer (or we hit the iteration cap).
  */
 import { callGemini } from './gemini';
-import type { GeminiContent, GeminiError, GeminiPart } from './gemini';
+import type { GeminiContent, GeminiPart } from './gemini';
 import { runTool } from './tools';
+import { newId } from '@/lib/id';
+import { describeError, toolErrorMessage, toolLabel, toolResultOk } from './events';
+import type { AssistantErrorKind, RetryStep, TraceStep } from './events';
 
 const MAX_TOOL_ITERATIONS = 6;
 
@@ -25,7 +28,14 @@ export interface ChatTurn {
   text: string;
 }
 
-export type AssistantResult = { ok: true; text: string } | { ok: false; message: string };
+export interface AssistantError {
+  kind: AssistantErrorKind;
+  message: string; // friendly prose (the error card body)
+  detail?: string; // raw technical text for the expandable section
+  iteration: number; // 0-based loop index the failure happened on
+}
+
+export type AssistantResult = { ok: true; text: string } | { ok: false; error: AssistantError };
 
 const hasFunctionCall = (
   p: GeminiPart
@@ -39,19 +49,12 @@ function wrapResponse(v: unknown): Record<string, unknown> {
     : { result: v };
 }
 
-function friendlyError(err: GeminiError): string {
-  switch (err.kind) {
-    case 'auth':
-      return `Your Gemini API key was rejected. Google no longer accepts the older keys that start with "AIza" — create a new key (an auth key, starting with "AQ.") at aistudio.google.com/apikey and paste it in Preferences → AI Assistant.\n\n(${err.message})`;
-    case 'rate_limit':
-      return "Gemini's free-tier rate limit was hit. Wait a minute and try again.";
-    case 'network':
-      return err.message;
-    case 'api':
-      return `Gemini had a temporary server error — please try again in a moment. If it keeps happening, pick a different model in Preferences → AI Assistant.\n\n(${err.message})`;
-    default:
-      return err.message || 'Something went wrong talking to Gemini.';
-  }
+/** Build the structured error, logging it in dev so failures are visible in the Metro console. */
+function fail(kind: AssistantErrorKind, raw: string, iteration: number): AssistantResult {
+  const { message, detail } = describeError(kind, raw);
+  const error: AssistantError = { kind, message, detail, iteration };
+  if (__DEV__) console.warn('[assistant] error', error);
+  return { ok: false, error };
 }
 
 export async function runAssistant(opts: {
@@ -60,7 +63,19 @@ export async function runAssistant(opts: {
   apiKey: string;
   model: string;
   signal?: AbortSignal;
+  /** Observes the run as it happens — one snapshot per step, re-emitted (same id) as it transitions. */
+  onEvent?: (step: TraceStep) => void;
 }): Promise<AssistantResult> {
+  // A throwing observer must never break the never-throw loop; dev-log every step here.
+  const emit = (s: TraceStep) => {
+    if (__DEV__) console.log('[assistant]', s.kind, s);
+    try {
+      opts.onEvent?.(s);
+    } catch {
+      /* ignore observer failures */
+    }
+  };
+
   // Seed the conversation with prior text turns, then the new question.
   const contents: GeminiContent[] = opts.history.map((t) => ({
     role: t.role === 'user' ? 'user' : 'model',
@@ -69,14 +84,34 @@ export async function runAssistant(opts: {
   contents.push({ role: 'user', parts: [{ text: opts.question }] });
 
   for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+    const modelStepId = newId();
+    emit({ kind: 'model', id: modelStepId, iteration: i, status: 'running' });
+
+    // Track the retries emitted during this call so we can settle them (stop their spinner) the
+    // instant the call resolves — whether it ultimately succeeded or failed.
+    const retries: RetryStep[] = [];
     const res = await callGemini({
       contents,
       systemInstruction: SYSTEM_PROMPT,
       apiKey: opts.apiKey,
       model: opts.model,
       signal: opts.signal,
+      onRetry: (info) => {
+        const step: RetryStep = { kind: 'retry', id: newId(), ...info };
+        retries.push(step);
+        emit(step);
+      },
     });
-    if (!res.ok) return { ok: false, message: friendlyError(res.error) };
+    for (const r of retries) emit({ ...r, settled: true });
+    if (!res.ok) return fail(res.error.kind, res.error.message, i);
+    emit({
+      kind: 'model',
+      id: modelStepId,
+      iteration: i,
+      status: 'done',
+      inputTokens: res.usage?.inputTokens,
+      outputTokens: res.usage?.outputTokens,
+    });
 
     const calls = res.parts.filter(hasFunctionCall);
     // Record the model's turn (text and/or the function calls it wants) in the running history.
@@ -93,12 +128,36 @@ export async function runAssistant(opts: {
     // Execute each requested tool locally and return every result in one turn.
     const responseParts: GeminiPart[] = [];
     for (const c of calls) {
+      // Echo the model's call id when present so parallel calls stay paired in both the trace + Gemini.
+      const stepId = c.functionCall.id ?? newId();
+      const label = toolLabel(c.functionCall.name);
+      emit({
+        kind: 'tool',
+        id: stepId,
+        name: c.functionCall.name,
+        label,
+        args: c.functionCall.args,
+        status: 'running',
+      });
+
       const result = await runTool(c.functionCall.name, c.functionCall.args);
+      const ok = toolResultOk(result);
+      emit({
+        kind: 'tool',
+        id: stepId,
+        name: c.functionCall.name,
+        label,
+        args: c.functionCall.args,
+        status: ok ? 'ok' : 'error',
+        result,
+        ok,
+        error: ok ? undefined : toolErrorMessage(result),
+      });
+
       responseParts.push({
         functionResponse: {
           name: c.functionCall.name,
           response: wrapResponse(result),
-          // Echo the id back so parallel calls stay paired (Gemini matches on it).
           ...(c.functionCall.id ? { id: c.functionCall.id } : {}),
         },
       });
@@ -106,8 +165,5 @@ export async function runAssistant(opts: {
     contents.push({ role: 'user', parts: responseParts });
   }
 
-  return {
-    ok: false,
-    message: 'That needed too many steps to answer. Try asking something more specific.',
-  };
+  return fail('iteration_limit', `Stopped after ${MAX_TOOL_ITERATIONS} tool rounds.`, MAX_TOOL_ITERATIONS);
 }

@@ -20,6 +20,8 @@ import { IconCheck, IconChevronDown, IconChevronRight, IconSparkles, IconTrash, 
 import { useAssistant } from '@/lib/assistant/useAssistant';
 import type { Message } from '@/lib/assistant/useAssistant';
 import { AVAILABLE_MODELS } from '@/lib/assistant/gemini';
+import { errorTitle, previewJson, traceUsage } from '@/lib/assistant/events';
+import type { TraceStep } from '@/lib/assistant/events';
 import { parseMarkdown } from '@/lib/assistant/markdown';
 import type { MdBlock, MdSpan } from '@/lib/assistant/markdown';
 
@@ -48,7 +50,7 @@ export function AssistantOverlay() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
-  const { messages, sending, hasKey, model, chooseModel, send, stop, clear, refreshKey } = useAssistant();
+  const { messages, sending, trace, hasKey, model, chooseModel, send, stop, clear, refreshKey } = useAssistant();
   const scrollRef = useRef<ScrollView>(null);
   const activeModelLabel = AVAILABLE_MODELS.find((m) => m.id === model)?.label ?? model;
 
@@ -60,7 +62,7 @@ export function AssistantOverlay() {
 
   useEffect(() => {
     if (open) scrollRef.current?.scrollToEnd({ animated: true });
-  }, [messages, sending, open]);
+  }, [messages, sending, trace, open]);
 
   const submit = (text: string) => {
     const t = text.trim();
@@ -147,7 +149,7 @@ export function AssistantOverlay() {
                     ) : (
                       messages.map((m) => <Bubble key={m.id} message={m} />)
                     )}
-                    {sending ? <Thinking /> : null}
+                    {sending ? <ActivityTrace steps={trace} /> : null}
                   </ScrollView>
 
                   {/* Composer — with the model picker sitting just above the input. */}
@@ -278,18 +280,82 @@ function Bubble({ message }: { message: Message }) {
       </View>
     );
   }
+  if (message.error) return <ErrorCard message={message} />;
+
+  const hasTrace = !!message.steps?.length;
   return (
-    <View
-      className={`self-start max-w-[88%] rounded-3xl rounded-bl-lg px-4 py-[10px] border ${
-        message.error ? 'bg-[#FDECEC] border-[#F6CDCD]' : 'bg-card border-hair'
-      }`}
-    >
-      {message.error ? (
-        // Error strings are hand-written plain prose — render literally, no markdown pass.
-        <Text className="font-body text-[14.5px] leading-5 text-over">{message.text}</Text>
-      ) : (
-        <MarkdownText blocks={parseMarkdown(message.text)} />
-      )}
+    <View className="self-start max-w-[88%] rounded-3xl rounded-bl-lg px-4 py-[10px] border bg-card border-hair">
+      <MarkdownText blocks={parseMarkdown(message.text)} />
+      {hasTrace ? <StepsDisclosure steps={message.steps!} /> : null}
+    </View>
+  );
+}
+
+/** Collapsed usage recap kept on an answered bubble — reopens the full step list + token totals. */
+function StepsDisclosure({ steps }: { steps: TraceStep[] }) {
+  const [open, setOpen] = useState(false);
+  const usage = traceUsage(steps);
+  const toolCount = steps.filter((s) => s.kind === 'tool').length;
+  const callsLine = [
+    `${usage.calls} ${usage.calls === 1 ? 'LLM call' : 'LLM calls'}`,
+    toolCount > 0 ? `${toolCount} ${toolCount === 1 ? 'tool call' : 'tool calls'}` : null,
+    `${(usage.inputTokens + usage.outputTokens).toLocaleString()} tokens`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const tokensLine = `${usage.inputTokens.toLocaleString()} in · ${usage.outputTokens.toLocaleString()} out`;
+  return (
+    <View className="mt-2 pt-2 border-t border-hair">
+      <Pressable onPress={() => setOpen((v) => !v)} className="flex-row items-start gap-1.5 active:opacity-70">
+        <View className="mt-0.5">
+          {open ? <IconChevronDown size={14} color="#8B9A8D" /> : <IconChevronRight size={14} color="#8B9A8D" />}
+        </View>
+        <View className="flex-1">
+          <Text className="font-body-md text-[12px] text-ink3">{callsLine}</Text>
+          <Text className="font-body-md text-[12px] text-ink3">{tokensLine}</Text>
+        </View>
+      </Pressable>
+      {open ? (
+        <View className="mt-1">
+          <StepList steps={steps} />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** Titled error card: friendly message + an expandable raw "Technical details" block. */
+function ErrorCard({ message }: { message: Message }) {
+  const [showDetail, setShowDetail] = useState(false);
+  return (
+    <View className="self-start max-w-[88%] rounded-3xl rounded-bl-lg px-4 py-3 border bg-[#FDECEC] border-[#F6CDCD]">
+      <View className="flex-row items-center gap-2 mb-1.5">
+        <View className="w-[20px] h-[20px] rounded-full bg-[#F6CDCD] items-center justify-center">
+          <IconX size={13} color="#E03131" />
+        </View>
+        <Text className="font-body-b text-[13.5px] text-over">{errorTitle(message.errorKind)}</Text>
+      </View>
+      <Text className="font-body text-[14px] leading-5 text-over">{message.text}</Text>
+      {message.errorDetail ? (
+        <View className="mt-2">
+          <Pressable
+            onPress={() => setShowDetail((v) => !v)}
+            className="flex-row items-center gap-1.5 active:opacity-70"
+          >
+            {showDetail ? (
+              <IconChevronDown size={13} color="#B0433F" />
+            ) : (
+              <IconChevronRight size={13} color="#B0433F" />
+            )}
+            <Text className="font-body-sb text-[11.5px] text-[#B0433F]">Technical details</Text>
+          </Pressable>
+          {showDetail ? (
+            <View className="mt-1 rounded-lg bg-[#F9DADA] px-2.5 py-2">
+              <Text className="font-body-md text-[11.5px] leading-4 text-[#8A2C2C]">{message.errorDetail}</Text>
+            </View>
+          ) : null}
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -356,11 +422,144 @@ function MarkdownText({ blocks }: { blocks: MdBlock[] }) {
   );
 }
 
-function Thinking() {
+/** Live activity while the assistant works — the step list (each Gemini call + tool call is a row)
+ * plus a running token-usage summary. Replaces the old static "Thinking…" bubble. */
+function ActivityTrace({ steps }: { steps: TraceStep[] }) {
   return (
-    <View className="self-start flex-row items-center gap-2 rounded-3xl rounded-bl-lg px-4 py-3 border border-hair bg-card">
-      <ActivityIndicator size="small" color="#2F9E44" />
-      <Text className="font-body text-[13.5px] text-ink2">Thinking…</Text>
+    <View className="self-start w-[88%] rounded-3xl rounded-bl-lg px-4 py-3 border border-hair bg-card">
+      <View className="flex-row items-center gap-2 mb-1">
+        <View className="w-[22px] h-[22px] rounded-full bg-[#EAF7EC] items-center justify-center">
+          <IconSparkles size={13} color="#2F9E44" />
+        </View>
+        <Text className="font-body-sb text-[12.5px] text-ink2">Working…</Text>
+      </View>
+      {steps.length === 0 ? (
+        // Split-second before the first model step lands — the running rows carry the spinner after.
+        <View className="flex-row items-center gap-2 py-1">
+          <View className="w-[18px] items-center">
+            <ActivityIndicator size="small" color="#2F9E44" />
+          </View>
+          <Text className="font-body text-[13px] text-ink3">Thinking…</Text>
+        </View>
+      ) : (
+        <StepList steps={steps} />
+      )}
+    </View>
+  );
+}
+
+/** Renders the tool/retry rows of a trace (model rounds aren't rows). Shared live + post-hoc. */
+function StepList({ steps }: { steps: TraceStep[] }) {
+  return (
+    <View>
+      {steps.map((s) => (
+        <StepRow key={s.id} step={s} />
+      ))}
+    </View>
+  );
+}
+
+/** One trace row: a retry note, or a tool with a status glyph and tap-to-expand args + result. */
+function StepRow({ step }: { step: TraceStep }) {
+  const [expanded, setExpanded] = useState(false);
+
+  if (step.kind === 'model') {
+    const running = step.status === 'running';
+    const hasTokens = step.inputTokens != null || step.outputTokens != null;
+    return (
+      <View className="flex-row items-center gap-2 py-1">
+        <View className="w-[18px] items-center">
+          {running ? (
+            <ActivityIndicator size="small" color="#2F9E44" />
+          ) : (
+            <IconSparkles size={14} color="#2F9E44" />
+          )}
+        </View>
+        <Text className="flex-1 font-body-md text-[12.5px] text-ink3">
+          Gemini call {step.iteration + 1}
+          {running ? '…' : ''}
+        </Text>
+        {hasTokens ? (
+          <Text className="font-body-md text-[11px] text-ink3">
+            {(step.inputTokens ?? 0).toLocaleString()} in · {(step.outputTokens ?? 0).toLocaleString()} out
+          </Text>
+        ) : null}
+      </View>
+    );
+  }
+
+  if (step.kind === 'retry') {
+    return (
+      <View className="flex-row items-center gap-2 py-1">
+        <View className="w-[18px] items-center">
+          {step.settled ? (
+            <View className="w-2 h-2 rounded-full bg-[#C2820A]" />
+          ) : (
+            <ActivityIndicator size="small" color="#C2820A" />
+          )}
+        </View>
+        <Text className="font-body text-[12.5px] text-ink3">
+          {step.settled
+            ? `Server hiccup — retried (attempt ${step.attempt})`
+            : `Server hiccup — retrying (attempt ${step.attempt})…`}
+        </Text>
+      </View>
+    );
+  }
+
+  const running = step.status === 'running';
+  const failed = step.status === 'error';
+  return (
+    <View className="py-1">
+      <Pressable
+        onPress={() => !running && setExpanded((v) => !v)}
+        className="flex-row items-center gap-2 active:opacity-70"
+      >
+        <View className="w-[18px] items-center">
+          {running ? (
+            <ActivityIndicator size="small" color="#2F9E44" />
+          ) : failed ? (
+            <View className="w-[18px] h-[18px] rounded-full bg-[#FDECEC] items-center justify-center">
+              <IconX size={12} color="#E03131" />
+            </View>
+          ) : (
+            <IconCheck size={16} color="#2F9E44" />
+          )}
+        </View>
+        <Text className={`flex-1 font-body-md text-[13px] ${failed ? 'text-over' : 'text-ink2'}`}>
+          {step.label}
+        </Text>
+        {!running ? (
+          expanded ? (
+            <IconChevronDown size={14} color="#8B9A8D" />
+          ) : (
+            <IconChevronRight size={14} color="#8B9A8D" />
+          )
+        ) : null}
+      </Pressable>
+
+      {expanded ? (
+        <View className="mt-1.5 ml-[26px] gap-1.5">
+          <DataBlock label="Arguments" text={previewJson(step.args)} />
+          <DataBlock
+            label={failed ? 'Error' : 'Result'}
+            text={failed ? step.error ?? 'Tool failed' : previewJson(step.result)}
+            error={failed}
+          />
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/** A labelled monospace-ish block of JSON/text used inside an expanded tool step. */
+function DataBlock({ label, text, error = false }: { label: string; text: string; error?: boolean }) {
+  return (
+    <View>
+      <Text className="font-body-sb text-[10px] tracking-wide text-ink3 mb-0.5">{label.toUpperCase()}</Text>
+      <View className={`rounded-lg px-2.5 py-2 ${error ? 'bg-[#FDECEC]' : 'bg-[#EEF3EA]'}`}>
+        <Text className={`font-body-md text-[11.5px] leading-4 ${error ? 'text-over' : 'text-ink2'}`}>{text}</Text>
+      </View>
     </View>
   );
 }

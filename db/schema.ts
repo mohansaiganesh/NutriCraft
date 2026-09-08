@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, real, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 
 /**
  * Schema is defined ONCE here so the same table shapes can target Postgres later
@@ -44,7 +44,10 @@ export const foodItems = sqliteTable('food_items', {
   pricePer100: real('price_per_100').notNull().default(0),
   isCustom: integer('is_custom', { mode: 'boolean' }).notNull().default(true),
   ...auditColumns,
-});
+}, (t) => [
+  // Delta-sync scans `user_id = me AND updated_at > cursor` (lib/sync.ts). Mirrors Postgres.
+  index('food_items_user_updated').on(t.userId, t.updatedAt),
+]);
 
 /**
  * Reusable meal templates. Private per user.
@@ -58,7 +61,9 @@ export const meals = sqliteTable('meals', {
   name: text('name').notNull(),
   notes: text('notes'),
   ...auditColumns,
-});
+}, (t) => [
+  index('meals_user_updated').on(t.userId, t.updatedAt),
+]);
 
 /** Lines within a meal template: a food + gram weight. */
 export const mealItems = sqliteTable('meal_items', {
@@ -73,7 +78,11 @@ export const mealItems = sqliteTable('meal_items', {
     .references(() => foodItems.id, { onDelete: 'restrict' }),
   grams: real('grams').notNull().default(0),
   ...auditColumns,
-});
+}, (t) => [
+  index('meal_items_user_updated').on(t.userId, t.updatedAt), // sync delta
+  index('meal_items_meal').on(t.mealId), // template lookup + FK + meals-purge reference check
+  index('meal_items_food').on(t.foodItemId), // join + food-purge reference check
+]);
 
 /** What was actually eaten on a given day. */
 export const dailyLogs = sqliteTable('daily_logs', {
@@ -86,7 +95,13 @@ export const dailyLogs = sqliteTable('daily_logs', {
     .references(() => foodItems.id, { onDelete: 'restrict' }),
   grams: real('grams').notNull().default(0),
   ...auditColumns,
-});
+}, (t) => [
+  // The key one: range/day report queries filter `user_id = me AND logged_date BETWEEN …`
+  // (dayLogsQuery / logsInRangeQuery). Turns a full scan into an index seek as logs accrue.
+  index('daily_logs_user_date').on(t.userId, t.loggedDate),
+  index('daily_logs_user_updated').on(t.userId, t.updatedAt), // sync delta
+  index('daily_logs_food').on(t.foodItemId), // join + food-purge reference check
+]);
 
 /**
  * Per-user settings: daily targets, currency, and a reserved TDEE slot.

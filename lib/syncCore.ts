@@ -76,3 +76,21 @@ export function shouldApplyRemote(
 ): boolean {
   return localUpdatedAt === undefined || localUpdatedAt < remoteUpdatedAt;
 }
+
+/**
+ * Whether a soft-deleted (tombstone) row may be hard-deleted from local SQLite. Two guards, both
+ * required (`lib/purge.ts` also enforces FK-referential safety on top of this):
+ *   1. PUSHED — `updatedAt <= pushCursor`: the deletion has already synced up, so the row will
+ *      never be re-pulled (`pullTable` selects `updated_at > cursor`) and can't resurrect. A device
+ *      that never synced has `pushCursor === EPOCH`, so nothing qualifies — safe by construction.
+ *   2. AGED — `updatedAt < retentionCutoffIso` (now − retentionDays): a margin that keeps
+ *      recently-deleted rows around briefly on top of the cursor rule.
+ * ISO-8601 UTC strings compare lexicographically, so these are plain string comparisons.
+ */
+export function isTombstonePurgeable(
+  row: { deleted: boolean; updatedAt: string },
+  pushCursor: string,
+  retentionCutoffIso: string
+): boolean {
+  return row.deleted && row.updatedAt <= pushCursor && row.updatedAt < retentionCutoffIso;
+}

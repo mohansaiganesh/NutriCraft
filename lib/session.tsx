@@ -12,6 +12,7 @@ import {
   subscribeRealtime,
   syncInBackground,
 } from '@/lib/sync';
+import { purgeTombstonesThrottled } from '@/lib/purge';
 
 /**
  * - `loading`      — resolving the persisted session
@@ -76,6 +77,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     // First sync runs in the background; screens update reactively (useLiveQuery) as rows
     // land. syncInBackground already swallows offline/transient errors (lib/sync.ts).
     syncInBackground(uid);
+    // Hygiene: hard-delete aged, already-synced tombstones (throttled to once/24h, swallows
+    // errors). Safe regardless of the sync above — it reads the durable push cursor, so it only
+    // removes what a PRIOR session already pushed (lib/purge.ts).
+    void purgeTombstonesThrottled(uid);
   }
 
   // Bootstrap.

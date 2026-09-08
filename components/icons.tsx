@@ -292,6 +292,16 @@ export function IconChart({ size, color, strokeWidth = 2.1 }: IconProps) {
   );
 }
 
+export function IconShare({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M12 3v13" />
+      <Path d="M8 7l4-4 4 4" />
+      <Path d="M5 12v7a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-7" />
+    </Svg>
+  );
+}
+
 /** Meal-section icon by key (used on the Home dashboard + meal builder). */
 export type MealIconName = 'sunrise' | 'sun' | 'moon' | 'apple';
 export function MealIcon({ name, size, color, strokeWidth }: IconProps & { name: MealIconName }) {

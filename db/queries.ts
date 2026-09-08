@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, like, or, isNull } from 'drizzle-orm';
+import { and, asc, between, desc, eq, like, or, isNull } from 'drizzle-orm';
 import { newId } from '@/lib/id';
 import { requireUserId } from '@/lib/currentUser';
 import type { PerHundredBasis } from '@/lib/nutrition';
@@ -276,6 +276,26 @@ export function dayLogsQuery(loggedDate: string) {
       )
     )
     .orderBy(desc(dailyLogs.createdAt));
+}
+
+/** All log entries within an inclusive date range, joined to their food — the backbone of the
+ * Reports dashboard. Like `dayLogsQuery`, it deliberately does NOT filter `foodItems.deleted`: a
+ * log is a historical fact and must keep resolving its food (and computing nutrition) even after
+ * that food is deleted, so past periods stay correct. Dates are 'YYYY-MM-DD' strings, so the range
+ * is a plain lexical `between`. Ordered ascending by day for series/chart building. */
+export function logsInRangeQuery(startISO: string, endISO: string) {
+  return db
+    .select({ log: dailyLogs, food: foodItems })
+    .from(dailyLogs)
+    .innerJoin(foodItems, eq(dailyLogs.foodItemId, foodItems.id))
+    .where(
+      and(
+        between(dailyLogs.loggedDate, startISO, endISO),
+        eq(dailyLogs.deleted, false),
+        eq(dailyLogs.userId, requireUserId())
+      )
+    )
+    .orderBy(asc(dailyLogs.loggedDate));
 }
 
 // ---------------------------------------------------------------- Settings

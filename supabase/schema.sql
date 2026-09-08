@@ -51,6 +51,8 @@ create table if not exists public.meal_items (
   deleted      boolean not null default false
 );
 create index if not exists meal_items_user_updated on public.meal_items (user_id, updated_at);
+create index if not exists meal_items_meal on public.meal_items (meal_id);
+create index if not exists meal_items_food on public.meal_items (food_item_id);
 
 -- What was actually eaten on a given day.
 create table if not exists public.daily_logs (
@@ -65,6 +67,9 @@ create table if not exists public.daily_logs (
   deleted      boolean not null default false
 );
 create index if not exists daily_logs_user_updated on public.daily_logs (user_id, updated_at);
+-- Range/day report queries filter (user_id, logged_date); mirrors the local SQLite index.
+create index if not exists daily_logs_user_date on public.daily_logs (user_id, logged_date);
+create index if not exists daily_logs_food on public.daily_logs (food_item_id);
 
 -- One settings row per user, keyed by id = the user's auth id.
 create table if not exists public.settings (

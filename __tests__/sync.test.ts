@@ -4,6 +4,7 @@ import {
   advanceCursorPartial,
   fromRemote,
   isRowLevelError,
+  isTombstonePurgeable,
   maxIso,
   shouldApplyRemote,
   toRemote,
@@ -194,5 +195,46 @@ describe('shouldApplyRemote (last-write-wins pull)', () => {
 
   it('skips on an exact tie (local wins), so a re-pull is idempotent', () => {
     expect(shouldApplyRemote(remote, remote)).toBe(false);
+  });
+});
+
+describe('isTombstonePurgeable (local hard-delete eligibility)', () => {
+  // Pushed up to May; anything deleted before then has synced. Retention cutoff is April,
+  // so an eligible tombstone must be deleted AND updatedAt <= May-cursor AND < April-cutoff.
+  const cursor = '2024-05-01T00:00:00.000Z';
+  const cutoff = '2024-04-01T00:00:00.000Z';
+
+  it('purges a deleted row that is both pushed and aged', () => {
+    expect(
+      isTombstonePurgeable({ deleted: true, updatedAt: '2024-03-01T00:00:00.000Z' }, cursor, cutoff)
+    ).toBe(true);
+  });
+
+  it('never purges a live (non-deleted) row', () => {
+    expect(
+      isTombstonePurgeable({ deleted: false, updatedAt: '2024-03-01T00:00:00.000Z' }, cursor, cutoff)
+    ).toBe(false);
+  });
+
+  it('keeps a tombstone that has not been pushed yet (updatedAt > cursor)', () => {
+    // Deleted and old enough, but edited after the last successful push — dropping it locally
+    // would lose the deletion, so it must stay until the next sync carries it up.
+    expect(
+      isTombstonePurgeable({ deleted: true, updatedAt: '2024-06-01T00:00:00.000Z' }, cursor, cutoff)
+    ).toBe(false);
+  });
+
+  it('keeps a tombstone still inside the retention window (too recent)', () => {
+    // Pushed (<= cursor) but newer than the cutoff — held for the grace margin.
+    expect(
+      isTombstonePurgeable({ deleted: true, updatedAt: '2024-04-15T00:00:00.000Z' }, cursor, cutoff)
+    ).toBe(false);
+  });
+
+  it('purges nothing on a device that never synced (cursor at EPOCH)', () => {
+    // No real updatedAt can be <= EPOCH, so the pushed guard rejects everything — safe by design.
+    expect(
+      isTombstonePurgeable({ deleted: true, updatedAt: '2020-01-01T00:00:00.000Z' }, EPOCH, cutoff)
+    ).toBe(false);
   });
 });

@@ -149,9 +149,14 @@ const FK_PARENTS: Record<string, { col: string; parent: string }[]> = {
 
 // --- cursor persistence -------------------------------------------------------
 
-const cursorKey = (userId: string, remote: string) => `sync:${userId}:${remote}`;
+export const cursorKey = (userId: string, remote: string) => `sync:${userId}:${remote}`;
 
-async function getCursor(userId: string, remote: string): Promise<string> {
+/**
+ * The per-table push cursor (max `updated_at` synced so far), or `EPOCH` if never synced.
+ * Exported so `lib/purge.ts` reads the exact same durable cursor the sync engine advances —
+ * that value is what makes a local tombstone hard-delete safe.
+ */
+export async function getCursor(userId: string, remote: string): Promise<string> {
   try {
     return (await AsyncStorage.getItem(cursorKey(userId, remote))) ?? EPOCH;
   } catch {

@@ -20,6 +20,8 @@ import { IconCheck, IconChevronDown, IconChevronRight, IconSparkles, IconTrash, 
 import { useAssistant } from '@/lib/assistant/useAssistant';
 import type { Message } from '@/lib/assistant/useAssistant';
 import { AVAILABLE_MODELS } from '@/lib/assistant/gemini';
+import { parseMarkdown } from '@/lib/assistant/markdown';
+import type { MdBlock, MdSpan } from '@/lib/assistant/markdown';
 
 const TAB_BAR_HEIGHT = 56; // matches app/(tabs)/_layout.tsx
 const STARTERS = ['Calories this week', 'Most expensive meal', 'Am I over target today?'];
@@ -282,11 +284,74 @@ function Bubble({ message }: { message: Message }) {
         message.error ? 'bg-[#FDECEC] border-[#F6CDCD]' : 'bg-card border-hair'
       }`}
     >
-      <Text
-        className={`font-body text-[14.5px] leading-5 ${message.error ? 'text-over' : 'text-ink'}`}
-      >
-        {message.text}
-      </Text>
+      {message.error ? (
+        // Error strings are hand-written plain prose — render literally, no markdown pass.
+        <Text className="font-body text-[14.5px] leading-5 text-over">{message.text}</Text>
+      ) : (
+        <MarkdownText blocks={parseMarkdown(message.text)} />
+      )}
+    </View>
+  );
+}
+
+/** Renders an inline run (bold / italic / code) as a nested <Text>. */
+function InlineSpans({ spans }: { spans: MdSpan[] }) {
+  return (
+    <>
+      {spans.map((s, i) => {
+        if (s.code) {
+          return (
+            <Text key={i} className="font-body-md text-[13px] text-ink bg-[#EEF3EA] rounded px-1">
+              {s.text}
+            </Text>
+          );
+        }
+        return (
+          <Text
+            key={i}
+            className={s.bold ? 'font-body-b text-ink' : 'font-body text-ink'}
+            style={s.italic ? { fontStyle: 'italic' } : undefined}
+          >
+            {s.text}
+          </Text>
+        );
+      })}
+    </>
+  );
+}
+
+/** Renders parsed markdown blocks with the Garden type tokens — paragraphs and bullet/ordered lists. */
+function MarkdownText({ blocks }: { blocks: MdBlock[] }) {
+  return (
+    <View className="gap-1.5">
+      {blocks.map((b, i) => {
+        if (b.type === 'paragraph') {
+          return (
+            <Text key={i} className="font-body text-[14.5px] leading-5 text-ink">
+              <InlineSpans spans={b.spans} />
+            </Text>
+          );
+        }
+        const ordered = b.type === 'ordered';
+        return (
+          <View key={i} className="gap-1">
+            {b.items.map((item, j) => (
+              <View key={j} className="flex-row">
+                <Text
+                  className={`text-[14.5px] leading-5 mr-2 ${
+                    ordered ? 'font-body-sb text-ink2' : 'font-body-b text-brand'
+                  }`}
+                >
+                  {ordered ? `${j + 1}.` : '•'}
+                </Text>
+                <Text className="flex-1 font-body text-[14.5px] leading-5 text-ink">
+                  <InlineSpans spans={item} />
+                </Text>
+              </View>
+            ))}
+          </View>
+        );
+      })}
     </View>
   );
 }

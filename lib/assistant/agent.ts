@@ -17,6 +17,7 @@ Rules:
 - Nutrition and prices are stored per 100 g/ml, but the tools already return ACTUAL logged amounts and totals — use those directly.
 - Costs are in the user's currency; tool results include a "currency" symbol — use it when showing money.
 - Be concise, friendly and specific. Lead with the answer, round numbers sensibly, and add at most a short bit of context. If there is no data for the period, say so plainly.
+- Format replies as short plain prose. You may use **bold** for key numbers and simple "- " bullet lists when listing several items — keep formatting minimal. Do not use tables, headings, code blocks, or links.
 - You can only READ data. You cannot log foods, create meals, or change targets/settings. If asked to do any of those, briefly explain that and point the user to the relevant screen (Foods, Meals, or Preferences).`;
 
 export interface ChatTurn {

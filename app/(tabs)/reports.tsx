@@ -7,6 +7,7 @@ import { Alert, Pressable, ScrollView, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
+import { File, Paths } from 'expo-file-system';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import {
   allMealItemsQuery,
@@ -34,7 +35,7 @@ import {
   type FoodLike,
   type LogEntry,
 } from '@/lib/reports';
-import { buildReportHtml, type ReportData, type ReportRow } from '@/lib/reportHtml';
+import { buildReportHtml, type ReportData, type LeaderBar } from '@/lib/reportHtml';
 import { addDaysISO, fmt, money, todayISO } from '@/lib/format';
 import { MEAL_TYPES } from '@/constants/meals';
 import { AccountButton, AppHeader, Card, Muted } from '@/components/ui';
@@ -235,28 +236,54 @@ export default function ReportsScreen() {
   // --- Share (PDF) ----------------------------------------------------------
   const onShare = async () => {
     try {
-      const t = settings;
       const money2 = (n: number) => money(n, currency);
-      const macroRow = (label: string, val: number, unit: string, target?: number): ReportRow => ({
-        label,
-        value: `${fmt(val, unit === 'g' ? 1 : 0)}${unit}`,
-        note: target ? `target ${fmt(target)}${unit}` : undefined,
-      });
+      // LeaderRow (chart component shape) → LeaderBar (report shape).
+      const toBars = (rows: LeaderRow[]): LeaderBar[] =>
+        rows.map((r) => ({ label: r.label, note: r.sublabel, value: r.value, valueText: r.valueText ?? fmt(r.value, 1) }));
+      const mealLeaders: LeaderBar[] = model.mealBreak
+        .map((b, i) => ({
+          label: MEAL_TYPES[i]?.label ?? b.key,
+          value: b.totals.calories,
+          valueText: `${fmt(b.totals.calories)} kcal`,
+        }))
+        .filter((r) => r.value > 0);
+
+      const stats: ReportData['stats'] = hasLogs
+        ? [
+            { value: `${fmt(model.avg.calories)}`, label: `kcal · avg/day`, color: C.brand },
+            { value: `${fmt(model.avg.proteinG, 1)}g`, label: 'protein · avg/day', color: C.protein },
+            { value: `${fmt(model.avg.carbsG, 1)}g`, label: 'carbs · avg/day', color: C.carbs },
+            { value: `${fmt(model.avg.fatG, 1)}g`, label: 'fat · avg/day', color: C.fat },
+            { value: `${fmt(model.avg.fiberG, 1)}g`, label: 'fiber · avg/day', color: '#0CA678' },
+            { value: money2(model.avg.cost), label: 'spent · avg/day', color: '#16241A' },
+          ]
+        : [];
+
       const sections: ReportData['sections'] = [
         {
-          title: 'Daily average (per logged day)',
+          title: 'Calories per day',
           empty: 'Nothing logged in this period.',
-          rows: hasLogs
-            ? [
-                macroRow('Calories', model.avg.calories, ' kcal', t?.targetCalories),
-                macroRow('Protein', model.avg.proteinG, 'g', t?.targetProteinG),
-                macroRow('Carbs', model.avg.carbsG, 'g', t?.targetCarbsG),
-                macroRow('Fat', model.avg.fatG, 'g', t?.targetFatG),
-                macroRow('Fiber', model.avg.fiberG, 'g', t?.targetFiberG),
-                { label: 'Spent', value: money2(model.avg.cost), note: 'per logged day' },
-              ]
-            : [],
+          rows: [],
+          bar: hasLogs ? { values: caloriesSeries, color: C.brand, target: settings?.targetCalories } : undefined,
+          caption: hasLogs ? rangeLabel(start, end) : undefined,
         },
+        ...(hasLogs
+          ? [
+              {
+                title: 'Macro split',
+                rows: [],
+                donut: {
+                  segments: [
+                    { label: 'Protein', value: model.split.protein, color: C.protein, valueText: `${fmt(model.split.protein)}% · ${fmt(model.avg.proteinG, 1)}g/day` },
+                    { label: 'Carbs', value: model.split.carbs, color: C.carbs, valueText: `${fmt(model.split.carbs)}% · ${fmt(model.avg.carbsG, 1)}g/day` },
+                    { label: 'Fat', value: model.split.fat, color: C.fat, valueText: `${fmt(model.split.fat)}% · ${fmt(model.avg.fatG, 1)}g/day` },
+                  ],
+                  centerTop: `${fmt(model.split.protein)}%`,
+                  centerBottom: 'protein',
+                },
+              },
+            ]
+          : []),
         {
           title: 'Goal adherence',
           empty: 'Nothing logged in this period.',
@@ -266,6 +293,9 @@ export default function ReportsScreen() {
             note: m.streak > 0 ? `streak ${m.streak}d` : undefined,
           })),
         },
+        ...(mealLeaders.length
+          ? [{ title: 'Calories by meal', rows: [], leaders: { rows: mealLeaders, color: C.brand } }]
+          : []),
         {
           title: 'Cost & value',
           rows: [
@@ -273,29 +303,63 @@ export default function ReportsScreen() {
             { label: 'Cost per 1000 kcal', value: money2(costPer1000Kcal(model.totals)) },
             { label: 'Cost per g protein', value: money2(costPerGramProtein(model.totals)) },
           ],
+          bar: hasLogs ? { values: costSeriesVals, color: C.cost } : undefined,
+          leaders: brandRows.length ? { rows: toBars(brandRows), color: C.cost } : undefined,
         },
         {
           title: 'Top spend by food',
           empty: 'No priced foods logged.',
-          rows: spendFoods.map((r) => ({ label: r.label, note: r.sublabel, value: r.valueText! })),
+          rows: [],
+          leaders: spendFoods.length ? { rows: toBars(spendFoods), color: C.cost } : undefined,
         },
         {
           title: 'Cheapest protein (your catalog)',
           empty: 'Add prices to your foods to see this.',
-          rows: cheapestProtein.map((r) => ({ label: r.label, note: r.sublabel, value: r.valueText! })),
+          rows: [],
+          leaders: cheapestProtein.length ? { rows: toBars(cheapestProtein), color: C.protein } : undefined,
         },
+        ...(hasLogs && topProtein.length
+          ? [
+              { title: 'Top foods — most protein', rows: [], leaders: { rows: toBars(topProtein), color: C.protein } },
+              { title: 'Top foods — most logged', rows: [], leaders: { rows: toBars(mostLogged), color: C.brand } },
+            ]
+          : []),
+        ...(mealRankRows.length
+          ? [{ title: 'Meal comparison', rows: [], leaders: { rows: toBars(mealRankRows), color: C.brand } }]
+          : []),
+        ...(hasLogs
+          ? [
+              {
+                title: 'Protein trend',
+                rows: [],
+                line: { values: proteinSeries, color: C.protein, target: settings?.targetProteinG },
+                caption: `avg ${fmt(model.avg.proteinG, 1)}g/day · target ${fmt(settings?.targetProteinG ?? 0)}g`,
+              },
+            ]
+          : []),
       ];
       const data: ReportData = {
         periodLabel: mode === 'custom' ? 'Custom range' : `Last ${periodLabel}`,
         dateRange: rangeLabel(start, end),
         headline: model.headline,
+        stats,
         sections,
       };
       const { uri } = await Print.printToFileAsync({ html: buildReportHtml(data) });
+      // expo-print names the file with a random UUID; rename it to describe the report.
+      const mdy = (iso: string) => {
+        const [y, m, d] = iso.split('-');
+        return `${m}-${d}-${y}`;
+      };
+      const now = new Date();
+      const hhmm = `${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+      const dest = new File(Paths.cache, `${mdy(start)}_to_${mdy(end)}_${hhmm}_report.pdf`);
+      if (dest.exists) dest.delete(); // re-share of the same range within a minute
+      new File(uri).move(dest);
       if (await Sharing.isAvailableAsync()) {
-        await Sharing.shareAsync(uri, { mimeType: 'application/pdf', dialogTitle: 'Share NutriCraft report', UTI: 'com.adobe.pdf' });
+        await Sharing.shareAsync(dest.uri, { mimeType: 'application/pdf', dialogTitle: 'Share NutriCraft report', UTI: 'com.adobe.pdf' });
       } else {
-        Alert.alert('Report ready', `Saved to:\n${uri}`);
+        Alert.alert('Report ready', `Saved to:\n${dest.uri}`);
       }
     } catch (e: any) {
       Alert.alert('Share failed', String(e?.message ?? e));

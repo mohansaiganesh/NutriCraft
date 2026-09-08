@@ -158,13 +158,19 @@ function MacroBar({
   color: string;
 }) {
   const pct = target > 0 ? Math.min(100, (value / target) * 100) : 0;
+  const rawPct = target > 0 ? (value / target) * 100 : 0;
   const over = target > 0 && value > target;
   return (
     <View className="mb-[6px]">
       <View className="flex-row justify-between mb-[2px]">
-        <Text className="font-body-b text-[18px]" style={{ color: over ? '#E03131' : color }}>
-          {label}
-        </Text>
+        <View className="flex-row items-baseline" style={{ gap: 6 }}>
+          <Text className="font-body-b text-[18px]" style={{ color: over ? '#E03131' : color }}>
+            {label}
+          </Text>
+          {target > 0 ? (
+            <Text className="font-body-sb text-[15px] text-ink3">({fmt(rawPct, 1)}%)</Text>
+          ) : null}
+        </View>
         <Text className="font-body-sb text-[18px] text-ink2">
           {fmt(value, unit === 'g' ? 1 : 0)} / {fmt(target)}
           {unit}

@@ -313,6 +313,43 @@ export function IconSparkles({ size, color, strokeWidth = 2 }: IconProps) {
   );
 }
 
+export function IconLock({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M6 10.5A1.5 1.5 0 0 1 7.5 9h9a1.5 1.5 0 0 1 1.5 1.5V19a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1z" />
+      <Path d="M8.5 9V7a3.5 3.5 0 0 1 7 0v2" />
+      <Circle cx="12" cy="14.5" r="1.2" fill={color ?? '#16241A'} />
+    </Svg>
+  );
+}
+
+export function IconCloud({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M7 18a4 4 0 0 1-.5-7.97A5.5 5.5 0 0 1 17 9.5a3.75 3.75 0 0 1 .5 8.5z" />
+    </Svg>
+  );
+}
+
+export function IconInfo({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Circle cx="12" cy="12" r="9" />
+      <Line x1="12" y1="11" x2="12" y2="16" />
+      <Circle cx="12" cy="8" r="0.6" fill={color ?? '#16241A'} stroke="none" />
+    </Svg>
+  );
+}
+
+export function IconMail({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h13A1.5 1.5 0 0 1 20 6.5V18a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" />
+      <Path d="M4.5 7l7.5 6 7.5-6" />
+    </Svg>
+  );
+}
+
 /** Meal-section icon by key (used on the Home dashboard + meal builder). */
 export type MealIconName = 'sunrise' | 'sun' | 'moon' | 'apple';
 export function MealIcon({ name, size, color, strokeWidth }: IconProps & { name: MealIconName }) {

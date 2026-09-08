@@ -18,7 +18,21 @@ sync. The app stays fully local-first — this just adds the durable, account-sc
 ## 2. Provision the database
 In the Supabase **SQL editor**, run these files **in order**:
 1. `schema.sql` — tables (mirrors `db/schema.ts`; timestamps are client-generated ISO text).
+   This already includes the `settings` **profile columns** (`display_name`, `age`, `country`,
+   `phone`) used by the Account → Profile screen, so a fresh project needs nothing extra for them.
 2. `rls.sql` — Row-Level Security policies + realtime publication.
+
+> **Upgrading an existing project** (created before the Account/Profile feature): `schema.sql`
+> uses `create table if not exists`, so re-running it will **not** add the new columns to a table
+> that already exists. Add them once in the SQL editor:
+> ```sql
+> alter table public.settings add column if not exists display_name text;
+> alter table public.settings add column if not exists age          integer;
+> alter table public.settings add column if not exists country      text;
+> alter table public.settings add column if not exists phone        text;
+> ```
+> Existing RLS (`id = auth.uid()`) already covers them — no policy change. Until this runs, editing
+> Profile works locally but the fields can't sync to the cloud.
 
 No starter data ships. A new account opens to the **shared catalog** plus its own (initially
 empty) private foods. The shared catalog is admin-curated **server-side**: run
@@ -32,6 +46,25 @@ import (service role) will populate the same shared tier.
 - For the smoothest first-run while testing, you may turn **off** "Confirm email"
   (Authentication → Providers → Email) so sign-up creates an active session immediately.
   Leave it on for production; the app shows a "check your inbox" notice in that case.
+- **Change email / change password** work out of the box via Supabase auth (Account → Security &
+  login in the app). Changing email sends a confirmation link to the new address; the login email
+  only flips once that link is opened.
+
+## 4. Deploy the account-deletion function
+The app's **Delete account** action (Account → Security & login) calls an Edge Function, because a
+client can never delete an auth user — only the service role can. Deploy it once with the
+[Supabase CLI](https://supabase.com/docs/guides/cli) (the last command is the only one you repeat
+when the function changes):
+```
+supabase login                              # once per machine (opens a browser)
+supabase link --project-ref YOUR-PROJECT-REF  # once per clone; ref is in Project Settings → General
+supabase functions deploy delete-account
+```
+The function (`functions/delete-account/index.ts`) authenticates the caller by their own JWT, so a
+user can only delete **themselves**; deleting the auth user cascades all their cloud rows via the
+`on delete cascade` foreign keys in `schema.sql`. Until it's deployed, the app surfaces a clear
+error and deletes nothing. `SUPABASE_URL` / `SUPABASE_ANON_KEY` / `SUPABASE_SERVICE_ROLE_KEY` are
+injected automatically by the platform — no secrets to configure.
 
 ## How sync works (reference)
 - `lib/sync.ts` runs a **push-then-pull** delta cycle per table, bounded by a per-table

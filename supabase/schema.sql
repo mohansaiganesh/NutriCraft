@@ -81,6 +81,11 @@ create table if not exists public.settings (
   target_fiber_g    real not null default 30,
   target_sodium_mg  real not null default 2300,
   currency          text not null default '$',
+  -- Profile fields (nullable). The login email lives in auth.users, not here.
+  display_name      text,
+  age               integer,
+  country           text,
+  phone             text,
   tdee              real,
   updated_at        text not null default (to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'))
 );

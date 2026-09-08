@@ -4,7 +4,7 @@ import { addDatabaseChangeListener } from 'expo-sqlite';
 import type { Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { setCurrentUserId } from '@/lib/currentUser';
-import { ensureSettings } from '@/db/queries';
+import { ensureSettings, wipeLocalUserData } from '@/db/queries';
 import {
   cancelPendingSync,
   claimLocalData,
@@ -30,6 +30,12 @@ interface SessionValue {
   signIn(email: string, password: string): Promise<{ error?: string }>;
   signUp(email: string, password: string): Promise<{ error?: string }>;
   signOut(): Promise<void>;
+  /** Verify the current password, then set a new one. */
+  changePassword(current: string, next: string): Promise<{ error?: string }>;
+  /** Start an email change (Supabase emails a confirmation link to the new address). */
+  changeEmail(newEmail: string): Promise<{ error?: string }>;
+  /** Permanently delete the account server-side, wipe local data, and sign out. */
+  deleteAccount(): Promise<{ error?: string }>;
   sync(): void;
 }
 
@@ -173,6 +179,46 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       await supabase.auth.signOut();
       // Local cache is left in place (scoped by user_id) for fast re-login; the
       // onAuthStateChange SIGNED_OUT handler returns us to the login screen.
+    },
+    async changePassword(current, next) {
+      if (!email) return { error: 'Not signed in.' };
+      // Supabase's updateUser({ password }) doesn't check the current password, so verify it
+      // ourselves by re-authenticating first — this both confirms intent and rejects a session
+      // left open on a shared device.
+      const check = await supabase.auth.signInWithPassword({ email, password: current });
+      if (check.error) return { error: 'Current password is incorrect.' };
+      const { error } = await supabase.auth.updateUser({ password: next });
+      return error ? { error: error.message } : {};
+    },
+    async changeEmail(newEmail) {
+      const { error } = await supabase.auth.updateUser({ email: newEmail });
+      // The session's email only flips once the user confirms via the link Supabase sends;
+      // onAuthStateChange then updates our `email` state.
+      return error ? { error: error.message } : {};
+    },
+    async deleteAccount() {
+      const uid = userId;
+      if (!uid) return { error: 'Not signed in.' };
+      // Only the service role can delete an auth user — that lives in the `delete-account`
+      // Edge Function (supabase/functions/delete-account), which authenticates the caller by
+      // their JWT and cascades all cloud rows via the on-delete FKs.
+      const { error } = await supabase.functions.invoke('delete-account');
+      if (error) {
+        return {
+          error:
+            'Could not delete the account. The delete-account function may not be deployed — ' +
+            'see supabase/README.md.',
+        };
+      }
+      cancelPendingSync();
+      // Clear this user's rows locally so nothing stale lingers for the next account on the device.
+      try {
+        await wipeLocalUserData(uid);
+      } catch {
+        // Non-fatal: the account is already gone server-side; sign-out still proceeds.
+      }
+      await supabase.auth.signOut();
+      return {};
     },
     sync() {
       if (userId) syncInBackground(userId);

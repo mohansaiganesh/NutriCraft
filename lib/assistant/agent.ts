@@ -7,21 +7,31 @@ import { callGemini } from './gemini';
 import type { GeminiContent, GeminiPart } from './gemini';
 import { runTool } from './tools';
 import { newId } from '@/lib/id';
+import { todayISO } from '@/lib/format';
 import { describeError, toolErrorMessage, toolLabel, toolResultOk } from './events';
 import type { AssistantErrorKind, RetryStep, TraceStep } from './events';
 
 const MAX_TOOL_ITERATIONS = 6;
 
-const SYSTEM_PROMPT = `You are NutriCraft's built-in nutrition assistant. You answer the user's questions about THEIR OWN data — logged foods, saved meals, daily logs, macros (calories, protein, carbs, fat, fiber, sodium) and costs — using the provided tools.
+/** The system prompt, stamped with the real current date so the model never guesses the year. */
+function buildSystemPrompt(): string {
+  const today = todayISO();
+  const weekday = new Date().toLocaleDateString(undefined, { weekday: 'long' });
+  const year = today.slice(0, 4);
+  return `You are NutriCraft's built-in nutrition assistant. You answer the user's questions about THEIR OWN data — logged foods, saved meals, daily logs, macros (calories, protein, carbs, fat, fiber, sodium) and costs — using the provided tools.
+
+Today's date is ${weekday}, ${today}. The current year is ${year}.
 
 Rules:
 - Always call tools to get real numbers. Never guess, estimate, or invent data.
 - For anything time-related ("today", "this week", "this month", "last 7 days"), call get_today FIRST to resolve the date and get ready-made ranges, then pass those dates to get_day_totals / get_range_totals.
+- When the user names a date without a year (e.g. "Jan 5th"), assume the current year unless they clearly mean otherwise.
 - Nutrition and prices are stored per 100 g/ml, but the tools already return ACTUAL logged amounts and totals — use those directly.
 - Costs are in the user's currency; tool results include a "currency" symbol — use it when showing money.
 - Be concise, friendly and specific. Lead with the answer, round numbers sensibly, and add at most a short bit of context. If there is no data for the period, say so plainly.
 - Format replies as short plain prose. You may use **bold** for key numbers and simple "- " bullet lists when listing several items — keep formatting minimal. Do not use tables, headings, code blocks, or links.
 - You can only READ data. You cannot log foods, create meals, or change targets/settings. If asked to do any of those, briefly explain that and point the user to the relevant screen (Foods, Meals, or Preferences).`;
+}
 
 export interface ChatTurn {
   role: 'user' | 'assistant';
@@ -83,6 +93,9 @@ export async function runAssistant(opts: {
   }));
   contents.push({ role: 'user', parts: [{ text: opts.question }] });
 
+  // Built once per run — the date is stable across the loop's iterations.
+  const systemPrompt = buildSystemPrompt();
+
   for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
     const modelStepId = newId();
     emit({ kind: 'model', id: modelStepId, iteration: i, status: 'running' });
@@ -92,7 +105,7 @@ export async function runAssistant(opts: {
     const retries: RetryStep[] = [];
     const res = await callGemini({
       contents,
-      systemInstruction: SYSTEM_PROMPT,
+      systemInstruction: systemPrompt,
       apiKey: opts.apiKey,
       model: opts.model,
       signal: opts.signal,

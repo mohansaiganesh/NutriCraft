@@ -117,6 +117,12 @@ export const settings = sqliteTable('settings', {
   targetFiberG: real('target_fiber_g').notNull().default(30),
   targetSodiumMg: real('target_sodium_mg').notNull().default(2300),
   currency: text('currency').notNull().default('$'),
+  // Profile fields — all nullable (a new account has none until it fills them in).
+  // The login email is NOT stored here; it lives in Supabase auth (session.email).
+  displayName: text('display_name'),
+  age: integer('age'),
+  country: text('country'),
+  phone: text('phone'),
   // reserved for the future adaptive TDEE engine
   tdee: real('tdee'),
   updatedAt: text('updated_at').notNull().default(nowIso),

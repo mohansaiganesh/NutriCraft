@@ -332,10 +332,30 @@ export async function updateSettings(
     targetFiberG: number;
     targetSodiumMg: number;
     currency: string;
+    displayName: string | null;
+    age: number | null;
+    country: string | null;
+    phone: string | null;
   }>
 ): Promise<void> {
   await db
     .update(settings)
     .set({ ...patch, updatedAt: now() })
     .where(eq(settings.id, requireUserId()));
+}
+
+/**
+ * Hard-delete every local row belonging to a user — used only by the account-deletion flow
+ * AFTER the server-side auth user is gone. The soft-delete rule is deliberately skipped here:
+ * the account no longer exists, so there's nothing left to sync a tombstone to, and leaving
+ * scoped rows behind would surface stale data if a different account signs in on this device.
+ * The shared catalog (`user_id IS NULL`) is left untouched — it belongs to no user.
+ */
+export async function wipeLocalUserData(uid: string): Promise<void> {
+  // FK-safe order: leaf rows (logs, meal items) before their parents (meals, foods).
+  await db.delete(dailyLogs).where(eq(dailyLogs.userId, uid));
+  await db.delete(mealItems).where(eq(mealItems.userId, uid));
+  await db.delete(meals).where(eq(meals.userId, uid));
+  await db.delete(foodItems).where(eq(foodItems.userId, uid));
+  await db.delete(settings).where(eq(settings.id, uid));
 }

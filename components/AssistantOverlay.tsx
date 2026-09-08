@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -15,8 +16,10 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { router } from 'expo-router';
 import { IconCheck, IconChevronDown, IconChevronRight, IconSparkles, IconTrash, IconX } from './icons';
+import { settingsQuery } from '@/db/queries';
 import { useAssistant } from '@/lib/assistant/useAssistant';
 import type { Message } from '@/lib/assistant/useAssistant';
 import { AVAILABLE_MODELS } from '@/lib/assistant/gemini';
@@ -89,10 +92,10 @@ export function AssistantOverlay() {
       <Pressable
         onPress={() => setOpen(true)}
         accessibilityLabel="Open the nutrition assistant"
-        className="absolute w-[56px] h-[56px] rounded-full bg-brand items-center justify-center active:opacity-90"
+        className="absolute w-[68px] h-[68px] rounded-full overflow-hidden items-center justify-center active:opacity-90"
         style={[{ right: 20, bottom: TAB_BAR_HEIGHT + insets.bottom + 16 }, fabShadow]}
       >
-        <IconSparkles size={26} color="#fff" />
+        <Image source={require('../assets/assistant-avatar.png')} style={{ width: 68, height: 68 }} />
       </Pressable>
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
@@ -107,11 +110,11 @@ export function AssistantOverlay() {
             >
               {/* Header */}
               <View className="flex-row items-center px-5 pt-4 pb-3 border-b border-hair">
-                <View className="w-[34px] h-[34px] rounded-full bg-[#EAF7EC] items-center justify-center mr-3">
-                  <IconSparkles size={19} color="#2F9E44" />
+                <View className="w-[50px] h-[50px] rounded-full overflow-hidden mr-3">
+                  <Image source={require('../assets/assistant-avatar.png')} style={{ width: 55, height: 55 }} />
                 </View>
                 <View className="flex-1">
-                  <Text className="font-display-sb text-[17px] text-ink">Assistant</Text>
+                  <Text className="font-display-sb text-[17px] text-ink">Nico</Text>
                   <Text className="font-body text-[12px] text-ink3">Ask about your foods, meals & logs</Text>
                 </View>
                 {messages.length > 0 ? (
@@ -247,14 +250,15 @@ export function AssistantOverlay() {
 }
 
 function Welcome({ onPick, disabled }: { onPick: (t: string) => void; disabled: boolean }) {
+  const { data } = useLiveQuery(settingsQuery());
+  const firstName = data?.[0]?.displayName?.trim().split(/\s+/)[0] ?? '';
   return (
     <View className="flex-1 items-center justify-center py-10">
-      <View className="w-[56px] h-[56px] rounded-2xl bg-[#EAF7EC] items-center justify-center mb-4">
-        <IconSparkles size={28} color="#2F9E44" />
-      </View>
-      <Text className="font-display-sb text-[18px] text-ink text-center mb-1">How can I help?</Text>
+      <Text className="font-display-sb text-[18px] text-ink text-center mb-1">
+        {firstName ? `Hi ${firstName}, I'm Nico` : "Hi, I'm Nico"}
+      </Text>
       <Text className="font-body text-[13px] text-ink2 text-center max-w-[260px] mb-5">
-        I can answer questions about what you&apos;ve logged, your meals, macros and costs.
+        I can help with what you&apos;ve logged — your meals, macros and costs. Just ask.
       </Text>
       <View className="flex-row flex-wrap justify-center px-4">
         {STARTERS.map((s) => (

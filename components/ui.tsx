@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { IconChevronLeft, IconPlus, IconUser } from './icons';
+import { IconChevronLeft, IconChevronRight, IconPlus, IconUser } from './icons';
 
 /** Soft card elevation shared by every raised surface. */
 export const cardShadow = {
@@ -143,6 +143,70 @@ export function DetailHeader({ title, right, onBack }: { title: string; right?: 
 
 export function ScreenTitle({ children }: { children: ReactNode }) {
   return <Text className="font-display text-[28px] text-ink">{children}</Text>;
+}
+
+/** Uppercase group caption above a grouped list of MenuRows. */
+export function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <Text className="font-body-b text-[12px] tracking-wide text-ink3 uppercase mb-2 ml-1">
+      {children}
+    </Text>
+  );
+}
+
+/**
+ * A tappable settings/menu row: tinted icon tile, label (+ optional sublabel), an optional
+ * right-aligned value, and a trailing chevron. Group several inside one `Card` (they render
+ * their own hairline separators via `divider`). `danger` recolors the icon + label red.
+ */
+export function MenuRow({
+  icon,
+  label,
+  sublabel,
+  value,
+  onPress,
+  danger = false,
+  divider = false,
+  showChevron = true,
+}: {
+  icon: (props: { size?: number; color?: string }) => ReactNode;
+  label: string;
+  sublabel?: string;
+  value?: string;
+  onPress: () => void;
+  danger?: boolean;
+  divider?: boolean;
+  showChevron?: boolean;
+}) {
+  const tint = danger ? '#E03131' : '#2F9E44';
+  const labelColor = danger ? 'text-over' : 'text-ink';
+  return (
+    <Pressable
+      onPress={onPress}
+      className={`flex-row items-center gap-3 py-[13px] active:opacity-70 ${
+        divider ? 'border-t border-hair' : ''
+      }`}
+    >
+      <View
+        className="w-[38px] h-[38px] rounded-2xl items-center justify-center"
+        style={{ backgroundColor: danger ? '#FDECEC' : '#EEF6EC' }}
+      >
+        {icon({ size: 20, color: tint })}
+      </View>
+      <View className="flex-1">
+        <Text className={`font-body-sb text-[15px] ${labelColor}`}>{label}</Text>
+        {sublabel ? (
+          <Text className="font-body text-[12.5px] text-ink3 mt-[1px]">{sublabel}</Text>
+        ) : null}
+      </View>
+      {value ? (
+        <Text className="font-body-md text-[13.5px] text-ink2 mr-1" numberOfLines={1}>
+          {value}
+        </Text>
+      ) : null}
+      {showChevron ? <IconChevronRight size={18} color="#B4C0B6" /> : null}
+    </Pressable>
+  );
 }
 
 export function Muted({ children, className = '' }: { children: ReactNode; className?: string }) {

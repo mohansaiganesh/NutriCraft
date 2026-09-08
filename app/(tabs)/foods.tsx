@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { settingsQuery } from '@/db/queries';
 import { useFoodSearch } from '@/lib/useFoodSearch';
-import { AppHeader, cardShadow, EmptyState, Fab, Field, Muted } from '@/components/ui';
+import { AccountButton, AppHeader, cardShadow, EmptyState, Field, HeaderAddButton, Muted } from '@/components/ui';
 import { IconChevronRight, IconPencil } from '@/components/icons';
 import { Cost } from '@/components/nutrition';
 import { nutritionFor } from '@/lib/nutrition';
@@ -52,21 +52,38 @@ export default function FoodsScreen() {
 
   const renderSectionHeader = useCallback(
     ({ section }: { section: { kind: 'local' | 'remote' } }) =>
-      section.kind === 'remote' ? (
+      section.kind === 'local' ? (
+        localFoods.length > 0 ? (
+          <View className="flex-row items-center justify-between pt-2 pb-2">
+            <Text className="font-display-sb text-[13px] text-ink3 uppercase tracking-wide">
+              Database results
+            </Text>
+            <Text className="font-display-sb text-[13px] text-ink3 uppercase tracking-wide">
+              {localFoods.length} items
+            </Text>
+          </View>
+        ) : null
+      ) : section.kind === 'remote' ? (
         <View className="flex-row items-center justify-between pt-2 pb-2">
           <Text className="font-display-sb text-[13px] text-ink3 uppercase tracking-wide">
             Online results
           </Text>
           {remoteStatus === 'loading' ? (
-            <Muted className="text-[12px]">Searching…</Muted>
+            <Text className="font-display-sb text-[13px] text-ink3 uppercase tracking-wide">
+              Searching…
+            </Text>
           ) : remoteStatus === 'error' ? (
-            <Muted className="text-[12px]">Couldn’t reach — local results only</Muted>
+            <Text className="font-display-sb text-[13px] text-ink3 uppercase tracking-wide">
+              Couldn’t reach — local results only
+            </Text>
           ) : remoteFoods.length > 0 ? (
-            <Muted className="text-[12px]">{remoteFoods.length} items</Muted>
+            <Text className="font-display-sb text-[13px] text-ink3 uppercase tracking-wide">
+              {remoteFoods.length} items
+            </Text>
           ) : null}
         </View>
       ) : null,
-    [remoteStatus, remoteFoods.length],
+    [remoteStatus, remoteFoods.length, localFoods.length],
   );
 
   const renderSectionFooter = useCallback(
@@ -89,11 +106,17 @@ export default function FoodsScreen() {
 
   return (
     <View className="flex-1 bg-paper">
-      <View className="px-4 pt-2">
+      <View className="px-4">
         <AppHeader
+          kickerBelow
           kicker="Catalog"
           title="Foods"
-          right={<Text className="font-body-b text-[13px] text-ink3 pb-1">{localFoods.length} items</Text>}
+          titleAccessory={
+            <HeaderAddButton
+              onPress={() => router.push({ pathname: '/food/[id]', params: { id: 'new' } })}
+            />
+          }
+          right={<AccountButton />}
         />
         <Field
           placeholder="Search foods…"
@@ -119,7 +142,6 @@ export default function FoodsScreen() {
         renderSectionFooter={renderSectionFooter}
         renderItem={renderItem}
       />
-      <Fab onPress={() => router.push({ pathname: '/food/[id]', params: { id: 'new' } })} />
     </View>
   );
 }
@@ -173,14 +195,14 @@ const LocalFoodRow = React.memo(function LocalFoodRow({
         </Text>
       ) : null}
       <View className="flex-row gap-x-3 mt-[4px]">
+        <Text className="font-body-b text-cal text-[11px]">{fmt(per.calories)} kcal</Text>
+        <Cost cost={per.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
+      </View>
+      <View className="flex-row gap-x-3 mt-[3px]">
         <Text className="font-body-sb text-ink text-[11px]"><Text className="text-protein font-body-b">P</Text> {fmt(per.proteinG, 1)}g</Text>
         <Text className="font-body-sb text-ink text-[11px]"><Text className="text-carbs font-body-b">C</Text> {fmt(per.carbsG, 1)}g</Text>
         <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fat font-body-b">F</Text> {fmt(per.fatG, 1)}g</Text>
         <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(per.fiberG, 1)}g</Text>
-      </View>
-      <View className="flex-row gap-x-3 mt-[3px]">
-        <Text className="font-body-b text-cal text-[11px]">{fmt(per.calories)} kcal</Text>
-        <Cost cost={per.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
       </View>
     </View>
   );
@@ -222,14 +244,14 @@ const RemoteFoodRow = React.memo(function RemoteFoodRow({
         </Text>
       ) : null}
       <View className="flex-row gap-x-3 mt-[4px]">
+        <Text className="font-body-b text-cal text-[11px]">{fmt(per.calories)} kcal</Text>
+        <Cost cost={per.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
+      </View>
+      <View className="flex-row gap-x-3 mt-[3px]">
         <Text className="font-body-sb text-ink text-[11px]"><Text className="text-protein font-body-b">P</Text> {fmt(per.proteinG, 1)}g</Text>
         <Text className="font-body-sb text-ink text-[11px]"><Text className="text-carbs font-body-b">C</Text> {fmt(per.carbsG, 1)}g</Text>
         <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fat font-body-b">F</Text> {fmt(per.fatG, 1)}g</Text>
         <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(per.fiberG, 1)}g</Text>
-      </View>
-      <View className="flex-row gap-x-3 mt-[3px]">
-        <Text className="font-body-b text-cal text-[11px]">{fmt(per.calories)} kcal</Text>
-        <Cost cost={per.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
       </View>
     </Pressable>
   );

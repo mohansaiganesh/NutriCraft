@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text } from 'react-native';
+import { ScrollView, View, Text } from 'react-native';
 import Svg, { Circle } from 'react-native-svg';
 import type { NutritionTotals } from '@/lib/nutrition';
 import type { Settings } from '@/db/schema';
@@ -205,7 +205,11 @@ export function TargetProgress({
   ].filter((m) => m.target > 0 && m.over > 0);
   return (
     <View>
-      <View className="flex-row items-center justify-center" style={{ gap: 4 }}>
+      <ScrollView
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={{ gap: 4, alignItems: 'center', flexGrow: 1, justifyContent: 'center' }}
+      >
         <View className="rounded-full px-3 py-[6px]" style={{ backgroundColor: over ? '#FCE9E9' : '#EAF7EC' }}>
           <Text className="font-body-b text-[17px]" style={{ color: over ? '#C92A2A' : '#1B7A32' }}>
             {over ? '+' : '-'}{fmt(amount)} kcal
@@ -218,7 +222,7 @@ export function TargetProgress({
             </Text>
           </View>
         ))}
-      </View>
+      </ScrollView>
 
       <View className="flex-row items-center mt-2" style={{ gap: 16 }}>
         <CalorieRing value={totals.calories} target={settings.targetCalories} size={140} />

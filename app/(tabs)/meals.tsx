@@ -15,7 +15,7 @@ import { nutritionFor, sumNutrition, type NutritionTotals } from '@/lib/nutritio
 import { dateLabel, fmt, titleCase, todayISO } from '@/lib/format';
 import { mealLabel, type MealType } from '@/constants/meals';
 import { Cost } from '@/components/nutrition';
-import { AppHeader, Button, Card, EmptyState, Fab, Muted } from '@/components/ui';
+import { AccountButton, AppHeader, Button, Card, EmptyState, HeaderAddButton, Muted } from '@/components/ui';
 import { GramStepper } from '@/components/GramStepper';
 import { CalendarField } from '@/components/CalendarField';
 import { MealTypeField } from '@/components/MealTypeField';
@@ -87,11 +87,14 @@ export default function MealsScreen() {
 
   return (
     <View className="flex-1 bg-paper">
-      <View className="px-4 pt-2">
+      <View className="px-4">
         <AppHeader
           kicker="Templates"
           title="Meals"
+          kickerBelow
           subtitle="Build reusable meals and log them in one tap."
+          titleAccessory={<HeaderAddButton onPress={newMeal} />}
+          right={<AccountButton />}
         />
       </View>
       <FlatList
@@ -226,14 +229,14 @@ export default function MealsScreen() {
                           <View className="flex-row items-center justify-between mt-[4px]">
                             <View className="flex-1">
                               <View className="flex-row gap-x-3">
+                                <Text className="font-body-b text-cal text-[11px]">{fmt(itemTotals.calories)} kcal</Text>
+                                <Cost cost={itemTotals.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
+                              </View>
+                              <View className="flex-row gap-x-3 mt-[3px]">
                                 <Text className="font-body-sb text-ink text-[11px]"><Text className="text-protein font-body-b">P</Text> {fmt(itemTotals.proteinG, 1)}g</Text>
                                 <Text className="font-body-sb text-ink text-[11px]"><Text className="text-carbs font-body-b">C</Text> {fmt(itemTotals.carbsG, 1)}g</Text>
                                 <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fat font-body-b">F</Text> {fmt(itemTotals.fatG, 1)}g</Text>
                                 <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(itemTotals.fiberG, 1)}g</Text>
-                              </View>
-                              <View className="flex-row gap-x-3 mt-[3px]">
-                                <Text className="font-body-b text-cal text-[11px]">{fmt(itemTotals.calories)} kcal</Text>
-                                <Cost cost={itemTotals.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
                               </View>
                             </View>
                             <Pressable
@@ -266,7 +269,6 @@ export default function MealsScreen() {
           );
         }}
       />
-      <Fab onPress={newMeal} />
     </View>
   );
 }

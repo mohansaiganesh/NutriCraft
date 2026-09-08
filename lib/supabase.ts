@@ -39,6 +39,16 @@ export const supabase = createClient(clientUrl, clientKey, {
     // No URL-based session detection on native (that's a web-OAuth concern).
     detectSessionInUrl: false,
   },
+  global: {
+    // Bound every request so a stalled/captive network can't hold a socket open
+    // indefinitely and wedge the next sync cycle. Startup no longer waits on the
+    // network (see lib/session.tsx), so this only guards background sync.
+    fetch: (input, init) => {
+      const ctrl = new AbortController();
+      const id = setTimeout(() => ctrl.abort(), 10000);
+      return fetch(input, { ...init, signal: ctrl.signal }).finally(() => clearTimeout(id));
+    },
+  },
 });
 
 // Keep the access token fresh only while the app is in the foreground, per Supabase's

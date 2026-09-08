@@ -11,7 +11,6 @@ import {
   nudgeSync,
   subscribeRealtime,
   syncInBackground,
-  syncNow,
 } from '@/lib/sync';
 
 /**
@@ -61,17 +60,22 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     setUserId(uid);
     setEmail(mail);
     try {
-      // Claim any owner-less local rows (offline/single-install era) for this account.
+      // Local-only work — fast, no network — so startup never blocks on the network
+      // (offline this used to hang the "Syncing your data…" splash on ~10 sequential,
+      // un-timed-out Supabase requests before the UI could mount).
       await claimLocalData(uid);
-      // Pull existing cloud data BEFORE creating defaults, so we never clobber it.
-      await syncNow(uid).catch(() => {
-        /* offline — proceed with whatever is cached locally */
-      });
-      // Create a default settings row only if neither local nor cloud had one.
+      // Safe to create defaults before the pull: the default row is SETTINGS_EPOCH-stamped
+      // (db/queries.ts), so it loses every LWW comparison and is never pushed — a later
+      // background pull's real cloud settings always win.
       await ensureSettings();
     } finally {
+      // Enter the app immediately, online or offline. Local SQLite is the UI's source of
+      // truth; the finally guarantees we proceed even if the local work above throws.
       setStatus('ready');
     }
+    // First sync runs in the background; screens update reactively (useLiveQuery) as rows
+    // land. syncInBackground already swallows offline/transient errors (lib/sync.ts).
+    syncInBackground(uid);
   }
 
   // Bootstrap.

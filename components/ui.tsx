@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { IconChevronLeft, IconPlus } from './icons';
+import { IconChevronLeft, IconPlus, IconUser } from './icons';
 
 /** Soft card elevation shared by every raised surface. */
 export const cardShadow = {
@@ -36,28 +36,85 @@ export function AppHeader({
   kicker,
   right,
   subtitle,
+  kickerBelow = false,
+  kickerAccessory,
+  titleAccessory,
 }: {
   title: string;
   kicker?: string;
   right?: ReactNode;
   subtitle?: string;
+  kickerBelow?: boolean;
+  kickerAccessory?: ReactNode;
+  titleAccessory?: ReactNode;
 }) {
   const insets = useSafeAreaInsets();
+  const kickerEl = kicker ? (
+    <View
+      className={`flex-row items-center gap-2 ${kickerBelow ? 'mt-1' : 'mb-1'}`}
+    >
+      <Text className="font-body-b text-[12px] tracking-wide text-ink3 uppercase">
+        {kicker}
+      </Text>
+      {kickerAccessory}
+    </View>
+  ) : null;
+  const titleTextEl = (
+    <Text className="font-display text-[32px] leading-[34px] text-ink">{title}</Text>
+  );
+  const titleEl = titleAccessory ? (
+    <View className="flex-row items-center gap-2">
+      {titleTextEl}
+      {titleAccessory}
+    </View>
+  ) : (
+    titleTextEl
+  );
   return (
     <View style={{ paddingTop: insets.top + 8 }} className="mb-4">
-      <View className="flex-row items-end justify-between">
+      <View className="flex-row items-start justify-between">
         <View className="flex-1">
-          {kicker ? (
-            <Text className="font-body-b text-[12px] tracking-wide text-ink3 mb-1 uppercase">
-              {kicker}
-            </Text>
-          ) : null}
-          <Text className="font-display text-[32px] leading-[34px] text-ink">{title}</Text>
+          {kickerBelow ? (
+            <>
+              {titleEl}
+              {kickerEl}
+            </>
+          ) : (
+            <>
+              {kickerEl}
+              {titleEl}
+            </>
+          )}
         </View>
         {right}
       </View>
       {subtitle ? <Text className="font-body text-[13.5px] text-ink2 mt-2">{subtitle}</Text> : null}
     </View>
+  );
+}
+
+/** Round account button that opens the account screen — shared across every tab's top-right. */
+export function AccountButton() {
+  return (
+    <Pressable
+      onPress={() => router.push('/account')}
+      className="w-[42px] h-[42px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
+    >
+      <IconUser size={20} color="#3A4A3D" />
+    </Pressable>
+  );
+}
+
+/** Round green add button for a page header's top-right — primary "new entry" action. */
+export function HeaderAddButton({ onPress }: { onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className="w-[40px] h-[40px] rounded-full items-center justify-center border border-[#DCEAD4] active:opacity-80"
+      style={{ backgroundColor: '#EEF6EC' }}
+    >
+      <IconPlus size={18} color="#1B7A32" />
+    </Pressable>
   );
 }
 

@@ -1,6 +1,6 @@
 import { Alert, ScrollView, Text } from 'react-native';
 import { importBackup, shareBackup } from '@/lib/backup';
-import { AppHeader, Button, Card, Muted } from '@/components/ui';
+import { AccountButton, AppHeader, Button, Card, Muted } from '@/components/ui';
 
 function CardTitle({ children }: { children: React.ReactNode }) {
   return <Text className="font-display-sb text-[15px] text-ink mb-1">{children}</Text>;
@@ -30,7 +30,7 @@ export default function ReportsScreen() {
 
   return (
     <ScrollView className="flex-1 bg-paper" contentContainerClassName="px-4 pb-16 gap-[14px]">
-      <AppHeader kicker="Your data" title="Reports" />
+      <AppHeader kicker="Your data" title="Reports" kickerBelow right={<AccountButton />} />
 
       <Card className="gap-3">
         <CardTitle>Backup</CardTitle>

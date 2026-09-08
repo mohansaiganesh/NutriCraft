@@ -7,10 +7,10 @@ import { dayLogsQuery, removeLog, settingsQuery, updateLog } from '@/db/queries'
 import { nutritionFor, sumNutrition, type NutritionTotals } from '@/lib/nutrition';
 import { dateLabel, fmt, titleCase, todayISO } from '@/lib/format';
 import { MEAL_TYPES, type MealType } from '@/constants/meals';
-import { Card, Muted } from '@/components/ui';
+import { AccountButton, Card, Muted } from '@/components/ui';
 import { GramStepper } from '@/components/GramStepper';
 import { CalendarField } from '@/components/CalendarField';
-import { IconChevronDown, IconChevronRight, IconPlus, IconTrash, IconUser, MealIcon } from '@/components/icons';
+import { IconChevronDown, IconChevronRight, IconPlus, IconTrash, MealIcon } from '@/components/icons';
 import { Cost, TargetProgress } from '@/components/nutrition';
 import type { FoodItem } from '@/db/schema';
 
@@ -49,17 +49,6 @@ function ScaleToFit({ children }: { children: React.ReactNode }) {
   );
 }
 
-function NavButton({ onPress, children }: { onPress: () => void; children: React.ReactNode }) {
-  return (
-    <Pressable
-      onPress={onPress}
-      className="w-[42px] h-[42px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
-    >
-      {children}
-    </Pressable>
-  );
-}
-
 export default function TodayScreen() {
   const insets = useSafeAreaInsets();
   const { height: screenH } = useWindowDimensions();
@@ -88,11 +77,9 @@ export default function TodayScreen() {
       <View className="px-4" style={{ paddingTop: insets.top }}>
         <View style={{ height: headerH }}>
           {/* Date navigator */}
-          <View className="flex-row items-center justify-between mt-[10px] mb-4">
+          <View className="flex-row items-center justify-between mt-2 mb-4">
             <CalendarField value={date} onChange={setDate} className="py-[5px]" textClassName="font-body-b text-[14px]" />
-            <NavButton onPress={() => router.push('/account')}>
-              <IconUser size={20} color="#3A4A3D" />
-            </NavButton>
+            <AccountButton />
           </View>
 
           {/* Calorie-ring hero — fills remaining space, content scaled to fit */}
@@ -224,14 +211,14 @@ export default function TodayScreen() {
                         <View className="flex-row items-center justify-between mt-[4px]">
                           <View className="flex-1">
                             <View className="flex-row gap-x-3">
+                              <Text className="font-body-b text-cal text-[11px]">{fmt(totals.calories)} kcal</Text>
+                              <Cost cost={totals.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
+                            </View>
+                            <View className="flex-row gap-x-3 mt-[3px]">
                               <Text className="font-body-sb text-ink text-[11px]"><Text className="text-protein font-body-b">P</Text> {fmt(totals.proteinG, 1)}g</Text>
                               <Text className="font-body-sb text-ink text-[11px]"><Text className="text-carbs font-body-b">C</Text> {fmt(totals.carbsG, 1)}g</Text>
                               <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fat font-body-b">F</Text> {fmt(totals.fatG, 1)}g</Text>
                               <Text className="font-body-sb text-ink text-[11px]"><Text className="text-fiber font-body-b">Fib</Text> {fmt(totals.fiberG, 1)}g</Text>
-                            </View>
-                            <View className="flex-row gap-x-3 mt-[3px]">
-                              <Text className="font-body-b text-cal text-[11px]">{fmt(totals.calories)} kcal</Text>
-                              <Cost cost={totals.cost} currency={currency} className="font-body-sb text-cost text-[11px]" />
                             </View>
                           </View>
                           <Pressable

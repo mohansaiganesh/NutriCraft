@@ -3,7 +3,7 @@ import { Alert, ScrollView, Text, View } from 'react-native';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { settingsQuery, updateSettings } from '@/db/queries';
 import { num } from '@/lib/format';
-import { AppHeader, Button, Card, Field, Muted } from '@/components/ui';
+import { AccountButton, AppHeader, Button, Card, Field, Muted } from '@/components/ui';
 
 function CardTitle({ children }: { children: React.ReactNode }) {
   return <Text className="font-display-sb text-[15px] text-ink mb-1">{children}</Text>;
@@ -50,7 +50,7 @@ export default function SettingsScreen() {
 
   return (
     <ScrollView className="flex-1 bg-paper" contentContainerClassName="px-4 pb-16 gap-[14px]">
-      <AppHeader kicker="Nutrition" title="Preferences" />
+      <AppHeader kicker="Nutrition" title="Preferences" kickerBelow right={<AccountButton />} />
 
       <Card className="gap-3">
         <CardTitle>Daily targets</CardTitle>

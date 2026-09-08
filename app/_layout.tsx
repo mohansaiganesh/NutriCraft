@@ -19,6 +19,7 @@ import {
 import { useAppMigrations } from '@/db/migrate';
 import { SessionProvider, useSession } from '@/lib/session';
 import { AuthScreen } from '@/components/AuthScreen';
+import { AssistantOverlay } from '@/components/AssistantOverlay';
 
 function Center({ children }: { children: React.ReactNode }) {
   return (
@@ -38,18 +39,24 @@ function Loading({ label }: { label: string }) {
 /** App shell — mounted only once there's an active account (currentUserId is set). */
 function AppStack() {
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: '#F6F8F3' },
-      }}
-    >
-      <Stack.Screen name="(tabs)" />
-      <Stack.Screen name="food/[id]" options={{ presentation: 'modal' }} />
-      <Stack.Screen name="meal/[id]" />
-      <Stack.Screen name="pick-food" options={{ presentation: 'modal' }} />
-      <Stack.Screen name="account" options={{ presentation: 'modal' }} />
-    </Stack>
+    // The assistant overlay is a sibling painted AFTER the Stack, so its floating button and
+    // chat sheet sit above every tab and modal screen. It lives inside SessionProvider (so
+    // useSession works) and only mounts once status === 'ready'.
+    <View style={{ flex: 1 }}>
+      <Stack
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: '#F6F8F3' },
+        }}
+      >
+        <Stack.Screen name="(tabs)" />
+        <Stack.Screen name="food/[id]" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="meal/[id]" />
+        <Stack.Screen name="pick-food" options={{ presentation: 'modal' }} />
+        <Stack.Screen name="account" options={{ presentation: 'modal' }} />
+      </Stack>
+      <AssistantOverlay />
+    </View>
   );
 }
 

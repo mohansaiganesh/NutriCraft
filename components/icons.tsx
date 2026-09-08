@@ -302,6 +302,17 @@ export function IconShare({ size, color, strokeWidth = 2.1 }: IconProps) {
   );
 }
 
+export function IconSparkles({ size, color, strokeWidth = 2 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      {/* big four-point sparkle */}
+      <Path d="M12 3.5c.5 2.9 1.6 4 4.5 4.5-2.9.5-4 1.6-4.5 4.5-.5-2.9-1.6-4-4.5-4.5 2.9-.5 4-1.6 4.5-4.5z" />
+      {/* small accent sparkle */}
+      <Path d="M18 14c.3 1.5.9 2.1 2.4 2.4-1.5.3-2.1.9-2.4 2.4-.3-1.5-.9-2.1-2.4-2.4 1.5-.3 2.1-.9 2.4-2.4z" />
+    </Svg>
+  );
+}
+
 /** Meal-section icon by key (used on the Home dashboard + meal builder). */
 export type MealIconName = 'sunrise' | 'sun' | 'moon' | 'apple';
 export function MealIcon({ name, size, color, strokeWidth }: IconProps & { name: MealIconName }) {

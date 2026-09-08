@@ -38,6 +38,7 @@ import { buildReportHtml, type ReportData, type ReportRow } from '@/lib/reportHt
 import { addDaysISO, fmt, money, todayISO } from '@/lib/format';
 import { MEAL_TYPES } from '@/constants/meals';
 import { AccountButton, AppHeader, Card, Muted } from '@/components/ui';
+import { CalendarField } from '@/components/CalendarField';
 import { IconShare } from '@/components/icons';
 import { BarChart, DonutChart, HBarLeaderboard, LineChart, type LeaderRow } from '@/components/charts';
 
@@ -116,8 +117,25 @@ function AdherenceRow({ m }: { m: AdherenceMetric }) {
 
 export default function ReportsScreen() {
   const [periodDays, setPeriodDays] = useState<number>(30);
-  const end = todayISO();
-  const start = useMemo(() => addDaysISO(end, -(periodDays - 1)), [end, periodDays]);
+  const [mode, setMode] = useState<'preset' | 'custom'>('preset');
+  const today = todayISO();
+  const [customStart, setCustomStart] = useState(() => addDaysISO(today, -29));
+  const [customEnd, setCustomEnd] = useState(() => today);
+
+  // In custom mode, normalize so an inverted From/To pick still renders (min→start, max→end).
+  const end = useMemo(
+    () => (mode === 'custom' ? (customStart <= customEnd ? customEnd : customStart) : today),
+    [mode, customStart, customEnd, today]
+  );
+  const start = useMemo(
+    () =>
+      mode === 'custom'
+        ? customStart <= customEnd
+          ? customStart
+          : customEnd
+        : addDaysISO(end, -(periodDays - 1)),
+    [mode, customStart, customEnd, periodDays, end]
+  );
 
   const { data: settingsRows } = useLiveQuery(settingsQuery());
   const { data: logRows } = useLiveQuery(logsInRangeQuery(start, end), [start, end]);
@@ -168,7 +186,10 @@ export default function ReportsScreen() {
   }, [entries, start, end, mealItemRows, mealRows, foodRows, settings, currency]);
 
   const hasLogs = model.activeDays > 0;
-  const period = PERIODS.find((p) => p.days === periodDays)!;
+  const periodLabel =
+    mode === 'custom'
+      ? rangeLabel(start, end)
+      : PERIODS.find((p) => p.days === periodDays)!.label;
 
   // --- Leaderboard rows -----------------------------------------------------
   const topProtein: LeaderRow[] = rankBy(model.foods, (f) => f.totals.proteinG).map((f) => ({
@@ -265,7 +286,7 @@ export default function ReportsScreen() {
         },
       ];
       const data: ReportData = {
-        periodLabel: `Last ${period.label}`,
+        periodLabel: mode === 'custom' ? 'Custom range' : `Last ${periodLabel}`,
         dateRange: rangeLabel(start, end),
         headline: model.headline,
         sections,
@@ -307,19 +328,48 @@ export default function ReportsScreen() {
       {/* Period selector */}
       <View className="flex-row bg-[#EAF0E6] rounded-2xl p-[3px]">
         {PERIODS.map((p) => {
-          const active = p.days === periodDays;
+          const active = mode === 'preset' && p.days === periodDays;
           return (
             <Pressable
               key={p.days}
-              onPress={() => setPeriodDays(p.days)}
+              onPress={() => {
+                setMode('preset');
+                setPeriodDays(p.days);
+              }}
               className={`flex-1 py-[9px] rounded-xl items-center ${active ? 'bg-card' : ''}`}
               style={active ? { shadowColor: '#14281e', shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 } : undefined}
             >
-              <Text className={`text-[13px] ${active ? 'font-body-b text-ink' : 'font-body-sb text-ink3'}`}>{p.label}</Text>
+              <Text className={`text-[13px] ${active ? 'font-body-b text-ink' : 'font-body-sb text-ink3'}`}>{p.days}d</Text>
             </Pressable>
           );
         })}
+        {(() => {
+          const active = mode === 'custom';
+          return (
+            <Pressable
+              onPress={() => setMode('custom')}
+              className={`flex-1 py-[9px] rounded-xl items-center ${active ? 'bg-card' : ''}`}
+              style={active ? { shadowColor: '#14281e', shadowOpacity: 0.08, shadowRadius: 6, shadowOffset: { width: 0, height: 2 }, elevation: 1 } : undefined}
+            >
+              <Text className={`text-[13px] ${active ? 'font-body-b text-ink' : 'font-body-sb text-ink3'}`}>Custom</Text>
+            </Pressable>
+          );
+        })()}
       </View>
+
+      {/* Custom range pickers */}
+      {mode === 'custom' ? (
+        <View className="flex-row items-end gap-2">
+          <View className="flex-1">
+            <Text className="font-body-sb text-[11px] text-ink3 mb-1 ml-1">From</Text>
+            <CalendarField value={customStart} onChange={setCustomStart} />
+          </View>
+          <View className="flex-1">
+            <Text className="font-body-sb text-[11px] text-ink3 mb-1 ml-1">To</Text>
+            <CalendarField value={customEnd} onChange={setCustomEnd} />
+          </View>
+        </View>
+      ) : null}
 
       {/* Headline */}
       <LinearGradient colors={['#EAF7EC', '#F6FBF3']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={{ borderRadius: 22, borderWidth: 1, borderColor: '#DCEAD4' }}>
@@ -338,7 +388,7 @@ export default function ReportsScreen() {
         {hasLogs ? (
           <BarChart values={caloriesSeries} color={C.brand} target={settings?.targetCalories} height={110} />
         ) : (
-          <Muted className="text-[12.5px]">No entries in the last {period.label}. Log some food to see your trend.</Muted>
+          <Muted className="text-[12.5px]">No entries {mode === 'custom' ? 'in this range' : `in the last ${periodLabel}`}. Log some food to see your trend.</Muted>
         )}
         <Text className="font-body text-[10.5px] text-ink3 text-center">{rangeLabel(start, end)}</Text>
       </SectionCard>

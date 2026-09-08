@@ -202,6 +202,10 @@ export function Field({
   className = '',
   ...props
 }: TextInputProps & { label?: string; className?: string }) {
+  const disabled = props.editable === false;
+  const inputStyles = disabled
+    ? 'border-[#E4E9DF] bg-[#F1F4EE] text-ink3'
+    : 'border-[#DCE5D4] bg-card text-ink';
   return (
     <View className={className}>
       {label ? (
@@ -209,7 +213,7 @@ export function Field({
       ) : null}
       <TextInput
         placeholderTextColor="#9AA79B"
-        className="rounded-2xl border border-[#DCE5D4] bg-card px-[14px] py-[13px] text-[15px] font-body-md text-ink"
+        className={`rounded-2xl border px-[14px] py-[13px] text-[15px] font-body-md ${inputStyles}`}
         {...props}
       />
     </View>

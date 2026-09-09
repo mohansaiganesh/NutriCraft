@@ -5,15 +5,19 @@ import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  BackHandler,
   Image,
-  Modal,
+  Keyboard,
+  Platform,
   Pressable,
   ScrollView,
+  StyleSheet,
   Text,
   TextInput,
+  useWindowDimensions,
   View,
 } from 'react-native';
-import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
+import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { router } from 'expo-router';
@@ -53,7 +57,9 @@ const menuShadow = {
 
 export function AssistantOverlay() {
   const insets = useSafeAreaInsets();
+  const { height: screenH } = useWindowDimensions();
   const [open, setOpen] = useState(false);
+  const [kbInset, setKbInset] = useState(0);
   const [draft, setDraft] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
   const { messages, sending, trace, hasKey, model, chooseModel, send, stop, clear, refreshKey, pendingWrite, confirmWrite, cancelWrite } =
@@ -67,9 +73,47 @@ export function AssistantOverlay() {
     else setMenuOpen(false); // never reopen the panel with a stale model menu showing
   }, [open, refreshKey]);
 
+  // The panel is an in-window overlay (not a Modal), so Android's back button would otherwise pop the
+  // underlying screen. Intercept it while open: close the model menu first, then the panel.
+  useEffect(() => {
+    if (!open) return;
+    const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (menuOpen) {
+        setMenuOpen(false);
+        return true;
+      }
+      setOpen(false);
+      return true; // handled → don't pop the underlying screen
+    });
+    return () => sub.remove();
+  }, [open, menuOpen]);
+
+  // Edge-to-edge (the SDK 54 default) means the IME never resizes the window — the app just draws
+  // behind the keyboard — so measure it ourselves. Android reports the IME height *above* the nav
+  // bar, while the root view still spans the nav bar, so add that inset back to get the real offset
+  // from the bottom of the screen. iOS already measures from the screen bottom.
+  useEffect(() => {
+    if (!open) return;
+    const showEvt = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const hideEvt = Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide';
+    const show = Keyboard.addListener(showEvt, (e) =>
+      setKbInset(e.endCoordinates.height + (Platform.OS === 'android' ? insets.bottom : 0)),
+    );
+    const hide = Keyboard.addListener(hideEvt, () => setKbInset(0));
+    return () => {
+      show.remove();
+      hide.remove();
+      setKbInset(0); // never reopen the panel with a stale inset
+    };
+  }, [open, insets.bottom]);
+
+  // Keyboard closed: the usual 82%. Keyboard open: grow into whatever is left above it, but stop
+  // short of the status bar so the header stays reachable.
+  const sheetHeight = Math.min(screenH * 0.82, screenH - kbInset - insets.top - 8);
+
   useEffect(() => {
     if (open) scrollRef.current?.scrollToEnd({ animated: true });
-  }, [messages, sending, trace, open]);
+  }, [messages, sending, trace, open, kbInset]);
 
   const submit = (text: string) => {
     const t = text.trim();
@@ -102,23 +146,26 @@ export function AssistantOverlay() {
         <Image source={require('../assets/assistant-avatar.png')} style={{ width: 68, height: 68 }} />
       </Pressable>
 
-      <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        {/* KeyboardAvoidingView from react-native-keyboard-controller reads the real keyboard frame
-            natively (unlike RN's, which is a no-op on Android and can't see inside a Modal window).
-            It fills the Modal from the top, so its parent-relative offset is 0; behavior="height"
-            shrinks it by the keyboard height and the justify-end sheet rides up above the keyboard —
-            no per-device math. */}
-        <KeyboardAvoidingView
-          behavior="height"
-          style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(11,20,14,0.35)' }}
+      {open ? (
+        <Animated.View
+          entering={FadeIn.duration(150)}
+          exiting={FadeOut.duration(150)}
+          style={[StyleSheet.absoluteFill, { bottom: kbInset, backgroundColor: 'rgba(11,20,14,0.35)' }]}
         >
-          {/* Tap the dim backdrop to dismiss. */}
-          <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setOpen(false)} />
+          {/* Same-window overlay instead of a Modal: the assistant is mounted after <Stack>, so this
+              sits on top of the app. Under edge-to-edge the window is never resized by the keyboard,
+              so the overlay ends at `bottom: kbInset` — right where the keyboard begins — and the
+              justify-end sheet lands on top of it. No native keyboard module needed. */}
+          <View style={{ flex: 1, justifyContent: 'flex-end' }}>
+            {/* Tap the dim backdrop to dismiss. */}
+            <Pressable style={StyleSheet.absoluteFill} onPress={() => setOpen(false)} />
 
-          <View
-            className="bg-paper rounded-t-3xl border-t border-hair overflow-hidden"
-            style={{ height: '82%', paddingBottom: insets.bottom }}
-          >
+            <Animated.View
+              entering={SlideInDown.duration(240)}
+              exiting={SlideOutDown.duration(180)}
+              className="bg-paper rounded-t-3xl border-t border-hair overflow-hidden"
+              style={{ height: sheetHeight, paddingBottom: kbInset > 0 ? 0 : insets.bottom }}
+            >
               {/* Header */}
               <View className="flex-row items-center px-5 pt-4 pb-3 border-b border-hair">
                 <View className="w-[50px] h-[50px] rounded-full overflow-hidden mr-3">
@@ -255,9 +302,10 @@ export function AssistantOverlay() {
                   </View>
                 </>
               )}
+            </Animated.View>
           </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        </Animated.View>
+      ) : null}
     </>
   );
 }

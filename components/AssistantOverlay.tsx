@@ -447,8 +447,9 @@ function MarkdownText({ blocks }: { blocks: MdBlock[] }) {
   );
 }
 
-/** A write Nico proposes, paused for the user's decision. Nothing is persisted until Confirm is tapped;
- * a destructive action (a removal) gets the red treatment so it reads differently from a routine log. */
+/** The batch of writes Nico proposes, paused for a SINGLE decision. Nothing is persisted until
+ * Confirm is tapped. An all-removal batch gets the red treatment; a batch with any removal marks
+ * those rows in red so a delete never hides among routine logs. One item reads as a single line. */
 function ConfirmCard({
   req,
   onConfirm,
@@ -458,26 +459,48 @@ function ConfirmCard({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
-  const destructive = !!req.destructive;
+  const items = req.items;
+  const multi = items.length > 1;
+  const allDestructive = items.length > 0 && items.every((i) => i.destructive);
+  const title = allDestructive
+    ? multi
+      ? 'Confirm removals'
+      : 'Confirm removal'
+    : multi
+      ? 'Confirm these changes'
+      : 'Confirm this change';
   return (
     <View
       className={`self-start w-[88%] rounded-3xl rounded-bl-lg px-4 py-3 border ${
-        destructive ? 'bg-[#FDECEC] border-[#F6CDCD]' : 'bg-[#F1FAF2] border-[#CDE9D3]'
+        allDestructive ? 'bg-[#FDECEC] border-[#F6CDCD]' : 'bg-[#F1FAF2] border-[#CDE9D3]'
       }`}
     >
-      <View className="flex-row items-center gap-2 mb-1.5">
+      <View className="flex-row items-center gap-2 mb-2">
         <View
           className={`w-[22px] h-[22px] rounded-full items-center justify-center ${
-            destructive ? 'bg-[#F6CDCD]' : 'bg-[#D8F0DD]'
+            allDestructive ? 'bg-[#F6CDCD]' : 'bg-[#D8F0DD]'
           }`}
         >
-          {destructive ? <IconTrash size={13} color="#E03131" /> : <IconSparkles size={13} color="#2F9E44" />}
+          {allDestructive ? <IconTrash size={13} color="#E03131" /> : <IconSparkles size={13} color="#2F9E44" />}
         </View>
-        <Text className={`font-body-b text-[13px] ${destructive ? 'text-over' : 'text-brand'}`}>
-          {destructive ? 'Confirm removal' : 'Confirm this change'}
-        </Text>
+        <Text className={`font-body-b text-[13px] ${allDestructive ? 'text-over' : 'text-brand'}`}>{title}</Text>
       </View>
-      <Text className="font-body text-[14px] leading-5 text-ink mb-3">{req.summary}</Text>
+
+      {multi ? (
+        <View className="gap-1.5 mb-3">
+          {items.map((item) => (
+            <View key={item.id} className="flex-row">
+              <Text className={`text-[14px] leading-5 mr-2 ${item.destructive ? 'text-over' : 'font-body-b text-brand'}`}>•</Text>
+              <Text className={`flex-1 font-body text-[14px] leading-5 ${item.destructive ? 'text-over' : 'text-ink'}`}>
+                {item.summary}
+              </Text>
+            </View>
+          ))}
+        </View>
+      ) : (
+        <Text className="font-body text-[14px] leading-5 text-ink mb-3">{items[0]?.summary}</Text>
+      )}
+
       <View className="flex-row justify-end gap-2">
         <Pressable
           onPress={onCancel}
@@ -487,9 +510,9 @@ function ConfirmCard({
         </Pressable>
         <Pressable
           onPress={onConfirm}
-          className={`rounded-full px-4 py-[9px] active:opacity-90 ${destructive ? 'bg-[#E03131]' : 'bg-brand'}`}
+          className={`rounded-full px-4 py-[9px] active:opacity-90 ${allDestructive ? 'bg-[#E03131]' : 'bg-brand'}`}
         >
-          <Text className="font-body-b text-[13px] text-white">{destructive ? 'Remove' : 'Confirm'}</Text>
+          <Text className="font-body-b text-[13px] text-white">{allDestructive ? 'Remove' : 'Confirm'}</Text>
         </Pressable>
       </View>
     </View>

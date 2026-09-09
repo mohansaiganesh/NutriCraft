@@ -4,7 +4,7 @@
  * repeat until the model returns a plain text answer (or we hit the iteration cap).
  */
 import { callGemini } from './gemini';
-import type { GeminiContent, GeminiPart } from './gemini';
+import type { GeminiContent, GeminiPart, GeminiResult } from './gemini';
 import { describeWrite, executeWrite, isWriteTool, runTool } from './tools';
 import type { PendingWrite } from './tools';
 import { newId } from '@/lib/id';
@@ -36,7 +36,8 @@ Rules:
 - Be concise, friendly and specific. Lead with the answer, round numbers sensibly, and add at most a short bit of context. If there is no data for the period, say so plainly.
 - Format replies as short plain prose. You may use **bold** for key numbers and simple "- " bullet lists when listing several items — keep formatting minimal. Do not use tables, headings, code blocks, or links.
 - You can log foods and add saved meals to a day using the write tools (log_food, update_log_entry, remove_log_entry, apply_meal_to_day). To log a specific food you must first find it with search_foods and use its id; to edit or remove an entry, first find it with list_day_logs and use its logId.
-- The app shows the user a confirmation CARD automatically for every write — so NEVER ask the user to confirm in prose or say things like "please confirm" or "let me know if you'd like to proceed". Before a write, briefly state in ONE short sentence what you are about to log (e.g. "I'll add 45 g of dates to your breakfast."). Never claim something is done, logged, changed, or removed until the tool result confirms it. AFTER the tool result confirms the write, reply with a brief PAST-TENSE confirmation of what was logged (e.g. "Added 45 g of dates to your breakfast."). If a write comes back rejected, acknowledge that nothing was changed and offer to adjust it — do not silently retry.
+- Write tools do NOT take effect immediately. Each one returns { staged: true }, meaning the change is QUEUED — the app shows the user ONE confirmation covering ALL queued changes at the very end. So NEVER ask the user to confirm in prose (no "please confirm", no "let me know if you'd like to proceed"), and NEVER claim a change is done, logged, changed, or removed while you are still staging.
+- Propose every change the user asked for (call the matching write tool once per change; you may include several in a single turn). When every requested change is staged, STOP calling tools and reply with ONE short present-tense sentence naming everything you are about to log (e.g. "I'll add 45 g of dates, 100 g of rice and 150 g of chicken to your breakfast."). When you are then told the changes were applied, reply with a brief PAST-TENSE confirmation of what was logged (e.g. "Added dates, rice and chicken to your breakfast."). If you are told the user declined, say nothing was changed and offer to adjust — do not silently retry.
 - You cannot create or edit foods, create or rename meals or their items, or change targets/settings. If asked, briefly say so and point the user to the relevant screen (Foods, Meals, or Preferences).`;
 }
 
@@ -56,10 +57,20 @@ export type AssistantResult =
   | { ok: true; text: string; stoppedEarly?: StopReason } // stoppedEarly set on an early exit that still had partial text
   | { ok: false; error: AssistantError };
 
-/** A proposed write handed to `onConfirm`; the returned promise resolves once the user decides. */
-export interface ConfirmRequest extends PendingWrite {
-  id: string; // the confirm trace step id — stable across the pause so the UI can pair the decision
+/** One validated write inside a confirmation batch. */
+export interface ConfirmItem extends PendingWrite {
+  id: string; // the confirm trace step id — stable so the UI/trace can pair the decision
   label: string; // friendly label from toolLabel()
+}
+/**
+ * A batch of proposed writes handed to `onConfirm` as a SINGLE confirmation; the returned promise
+ * resolves once the user decides for the whole batch. Every write the model staged this run is
+ * collected here, so the user confirms once no matter how the model split the calls up.
+ */
+export interface ConfirmRequest {
+  id: string; // batch id
+  items: ConfirmItem[]; // one per staged, validated write
+  destructive: boolean; // any item is a removal → drives the card's red treatment
 }
 export type ConfirmDecision = 'approve' | 'reject';
 
@@ -128,7 +139,11 @@ export async function runAssistant(opts: {
   let toolCallsUsed = 0; // cumulative tool executions this run
   let stalledRounds = 0; // consecutive rounds that requested only already-seen calls
   let lastText = ''; // best plain text the model has produced so far (shown if we exit early)
-  let didWrite = false; // a write actually executed this run — steers the terminal fallback
+
+  // Writes proposed this run. They are NOT executed inline: each is validated + staged here, and the
+  // whole batch is confirmed ONCE at the end (see confirmStaged) — so the user sees a single card no
+  // matter how the model split the write calls across turns.
+  const staged: { stepId: string; name: string; label: string; pending: PendingWrite }[] = [];
 
   /**
    * Exit the loop early. If the model has already produced usable text, return it as a successful
@@ -139,6 +154,38 @@ export async function runAssistant(opts: {
     if (__DEV__) console.warn('[assistant] stopped early', { kind, detail, iteration });
     if (lastText) return { ok: true, text: lastText, stoppedEarly: describeStop(kind, detail) };
     return fail('iteration_limit', detail, iteration);
+  };
+
+  /** One Gemini round-trip with its trace rows (model running→done + any retries). Shared by the
+   * main loop and the single closing round after a confirmation. */
+  const callModel = async (iteration: number): Promise<GeminiResult> => {
+    const modelStepId = newId();
+    emit({ kind: 'model', id: modelStepId, iteration, status: 'running' });
+    const retries: RetryStep[] = [];
+    const res = await callGemini({
+      contents,
+      systemInstruction: systemPrompt,
+      apiKey: opts.apiKey,
+      model: opts.model,
+      signal: opts.signal,
+      onRetry: (info) => {
+        const step: RetryStep = { kind: 'retry', id: newId(), ...info };
+        retries.push(step);
+        emit(step);
+      },
+    });
+    for (const r of retries) emit({ ...r, settled: true });
+    if (res.ok) {
+      emit({
+        kind: 'model',
+        id: modelStepId,
+        iteration,
+        status: 'done',
+        inputTokens: res.usage?.inputTokens,
+        outputTokens: res.usage?.outputTokens,
+      });
+    }
+    return res;
   };
 
   /** Run a read tool immediately, emitting its running→ok/error trace row. */
@@ -161,94 +208,113 @@ export async function runAssistant(opts: {
   };
 
   /**
-   * A write: validate+resolve, then PAUSE on the confirmation gate. The mutation runs only after an
-   * 'approve'. A validation failure returns an { error } (no prompt); a missing confirmer, an abort,
-   * or a decline all resolve to a rejected write that touches nothing.
+   * A write: validate+resolve and STAGE it (nothing is persisted here). A validation failure returns
+   * an { error } the model can correct from; a valid write is queued for the end-of-run confirmation
+   * and the model gets back { staged: true } so it keeps going toward its closing summary.
    */
-  const handleWrite = async (name: string, label: string, stepId: string, args: Record<string, unknown>) => {
+  const stageWrite = async (
+    name: string,
+    label: string,
+    stepId: string,
+    args: Record<string, unknown>
+  ): Promise<Record<string, unknown>> => {
     const described = await describeWrite(name, args);
     if (!toolResultOk(described)) {
       // Bad/hallucinated args — surface as a tool error so the model can correct, no card shown.
       emit({ kind: 'tool', id: stepId, name, label, args, status: 'error', result: described, ok: false, error: toolErrorMessage(described) });
-      return described;
+      return described as Record<string, unknown>;
     }
     const pending = described as PendingWrite;
-    const row = { tool: name, label, summary: pending.summary, destructive: pending.destructive };
+    staged.push({ stepId, name, label, pending });
+    emit({ kind: 'confirm', id: stepId, tool: name, label, summary: pending.summary, destructive: pending.destructive, status: 'awaiting' });
+    return { staged: true };
+  };
 
+  /** One extra Gemini round to produce a natural closing message, with a deterministic fallback so
+   * the answer is never empty even if that call fails or returns nothing. */
+  const closingRound = async (instruction: string, iteration: number, fallback: string): Promise<AssistantResult> => {
+    contents.push({ role: 'user', parts: [{ text: instruction }] });
+    const res = await callModel(iteration + 1);
+    if (!res.ok) return { ok: true, text: fallback };
+    const text = res.parts.map((p) => ('text' in p ? p.text : '')).join('').trim();
+    return { ok: true, text: text || fallback };
+  };
+
+  /**
+   * End-of-run confirmation for every staged write: surface the model's summary above ONE card, take
+   * a single decision, then execute the whole batch (or none) and close with a natural message. The
+   * per-item confirm trace rows are re-emitted approved/rejected so the trace stays honest.
+   */
+  const confirmStaged = async (intro: string, iteration: number): Promise<AssistantResult> => {
+    const rejectAll = () => {
+      for (const s of staged) {
+        emit({ kind: 'confirm', id: s.stepId, tool: s.name, label: s.label, summary: s.pending.summary, destructive: s.pending.destructive, status: 'rejected' });
+      }
+    };
+
+    // No confirmer available, or already aborted — decline the whole batch, write nothing.
     if (!opts.onConfirm || opts.signal?.aborted) {
-      emit({ kind: 'confirm', id: stepId, ...row, status: 'rejected' });
-      return { rejected: true, reason: 'The user did not approve this action.' };
+      rejectAll();
+      return { ok: true, text: "I didn't change anything." };
     }
 
-    emit({ kind: 'confirm', id: stepId, ...row, status: 'awaiting' });
+    // Show the model's one-sentence summary as a bubble above the single confirm card.
+    if (intro) opts.onMessage?.(intro);
+
+    const items: ConfirmItem[] = staged.map((s) => ({ id: s.stepId, label: s.label, ...s.pending }));
+    const destructive = staged.some((s) => s.pending.destructive);
     let decision: ConfirmDecision = 'reject';
     try {
-      decision = await opts.onConfirm({ id: stepId, label, ...pending });
+      decision = await opts.onConfirm({ id: newId(), items, destructive });
     } catch {
       decision = 'reject';
     }
+
     if (decision !== 'approve' || opts.signal?.aborted) {
-      emit({ kind: 'confirm', id: stepId, ...row, status: 'rejected' });
-      return { rejected: true, reason: 'The user declined this action.' };
+      rejectAll();
+      return closingRound(
+        'The user declined, so nothing was changed. Briefly acknowledge that nothing was logged and offer to adjust.',
+        iteration,
+        "Okay — I haven't changed anything. Let me know if you'd like to adjust it."
+      );
     }
 
-    const result = await executeWrite(name, pending.payload);
-    emit({ kind: 'confirm', id: stepId, ...row, status: 'approved', result });
-    return result;
+    // Approved: execute each staged write in order and re-emit its trace row with the result.
+    const outcomes: string[] = [];
+    for (const s of staged) {
+      const result = await executeWrite(s.name, s.pending.payload);
+      const ok = result != null && typeof result === 'object' && !('error' in result);
+      emit({ kind: 'confirm', id: s.stepId, tool: s.name, label: s.label, summary: s.pending.summary, destructive: s.pending.destructive, status: 'approved', result });
+      outcomes.push(`${s.pending.summary}${ok ? '' : ' (failed)'}`);
+    }
+
+    return closingRound(
+      `The changes were applied: ${outcomes.join('; ')}. Reply with a brief past-tense confirmation of what was logged.`,
+      iteration,
+      'Done — your changes have been logged.'
+    );
   };
 
   for (let i = 0; i < MAX_ROUNDS; i++) {
-    const modelStepId = newId();
-    emit({ kind: 'model', id: modelStepId, iteration: i, status: 'running' });
-
-    // Track the retries emitted during this call so we can settle them (stop their spinner) the
-    // instant the call resolves — whether it ultimately succeeded or failed.
-    const retries: RetryStep[] = [];
-    const res = await callGemini({
-      contents,
-      systemInstruction: systemPrompt,
-      apiKey: opts.apiKey,
-      model: opts.model,
-      signal: opts.signal,
-      onRetry: (info) => {
-        const step: RetryStep = { kind: 'retry', id: newId(), ...info };
-        retries.push(step);
-        emit(step);
-      },
-    });
-    for (const r of retries) emit({ ...r, settled: true });
+    const res = await callModel(i);
     if (!res.ok) return fail(res.error.kind, res.error.message, i);
-    emit({
-      kind: 'model',
-      id: modelStepId,
-      iteration: i,
-      status: 'done',
-      inputTokens: res.usage?.inputTokens,
-      outputTokens: res.usage?.outputTokens,
-    });
 
     const calls = res.parts.filter(hasFunctionCall);
     // Record the model's turn (text and/or the function calls it wants) in the running history.
     contents.push({ role: 'model', parts: res.parts });
 
-    // Keep the best plain text seen so far — an early exit can still show a partial answer.
+    // Keep the best plain text seen so far — used as the closing summary / an early-exit partial.
     const roundText = res.parts
       .map((p) => ('text' in p ? p.text : ''))
       .join('')
       .trim();
-    const hasWrite = calls.some((c) => isWriteTool(c.functionCall.name));
-    if (roundText) {
-      if (hasWrite) {
-        // Prose that precedes a write proposal — surface it as a bubble NOW, above the confirm
-        // card. It's already been shown, so it must never become the final answer / a partial.
-        opts.onMessage?.(roundText);
-      } else {
-        lastText = roundText;
-      }
-    }
+    if (roundText) lastText = roundText;
 
     if (calls.length === 0) {
-      return { ok: true, text: roundText || lastText || (didWrite ? 'Done.' : "I couldn't find an answer to that.") };
+      // The model is done. If it staged any writes, confirm them all at once now; otherwise this is
+      // a plain answer.
+      if (staged.length > 0) return confirmStaged(roundText || lastText, i);
+      return { ok: true, text: roundText || lastText || "I couldn't find an answer to that." };
     }
 
     // Stall detection: if EVERY call this round repeats one we already ran, the model is looping and
@@ -267,7 +333,7 @@ export async function runAssistant(opts: {
     }
 
     // Execute each requested tool locally and return every result in one turn. Read tools run
-    // immediately; write tools pause on the confirmation gate and run only if the user approves.
+    // immediately; write tools are staged (validated but not persisted) for the single end-of-run card.
     const responseParts: GeminiPart[] = [];
     for (const c of calls) {
       // Echo the model's call id when present so parallel calls stay paired in both the trace + Gemini.
@@ -277,20 +343,8 @@ export async function runAssistant(opts: {
       const args = c.functionCall.args;
 
       const result = isWriteTool(name)
-        ? await handleWrite(name, label, stepId, args)
+        ? await stageWrite(name, label, stepId, args)
         : await handleRead(name, label, stepId, args);
-
-      // A write that actually ran (approved, no validation/mutation error) — used only to keep the
-      // terminal fallback sensible if the model goes silent after logging.
-      if (
-        isWriteTool(name) &&
-        result != null &&
-        typeof result === 'object' &&
-        !('rejected' in result) &&
-        !('error' in result)
-      ) {
-        didWrite = true;
-      }
 
       responseParts.push({
         functionResponse: {
@@ -306,5 +360,8 @@ export async function runAssistant(opts: {
     contents.push({ role: 'user', parts: responseParts });
   }
 
+  // Ran out of rounds. If writes were staged but never confirmed, confirm them now rather than
+  // dropping them silently; otherwise show whatever partial text we have.
+  if (staged.length > 0) return confirmStaged(lastText, MAX_ROUNDS);
   return finishEarly('round_limit', `Stopped after the ${MAX_ROUNDS}-round ceiling.`, MAX_ROUNDS);
 }

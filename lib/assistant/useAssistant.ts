@@ -11,6 +11,7 @@ import { getModel, setModel } from './modelStore';
 import { DEFAULT_MODEL } from './gemini';
 import { runAssistant } from './agent';
 import type { ChatTurn, ConfirmDecision, ConfirmRequest } from './agent';
+import type { WriteEdit } from './tools';
 import type { AssistantErrorKind, StopReason, TraceStep } from './events';
 
 export interface Message {
@@ -28,8 +29,8 @@ export interface Message {
   steps?: TraceStep[];
 }
 
-/** Merge adjacent same-role turns (joining text with a blank line) so a two-bubble logging turn
- * reads as one model turn to Gemini. Alternating histories pass through unchanged. */
+/** Merge adjacent same-role turns (joining text with a blank line) so any run of same-role bubbles
+ * reads as one turn to Gemini. Alternating histories pass through unchanged. */
 function coalesceTurns(turns: ChatTurn[]): ChatTurn[] {
   const out: ChatTurn[] = [];
   for (const t of turns) {
@@ -99,10 +100,9 @@ export function useAssistant() {
       }
       setHasKey(true);
 
-      // History = prior non-error turns, captured before we append the new question. A logging turn
-      // can leave two assistant bubbles (the pre-write intro + the post-confirm result), so coalesce
-      // adjacent same-role turns into one — a no-op for plain alternating chats, and it keeps Gemini
-      // from seeing two back-to-back model turns.
+      // History = prior non-error turns, captured before we append the new question. Coalesce any
+      // adjacent same-role turns into one — a no-op for plain alternating chats, and a guard that
+      // keeps Gemini from ever seeing two back-to-back model turns.
       const history = coalesceTurns(
         messages.filter((m) => !m.error).map((m) => ({ role: m.role, text: m.text }))
       );
@@ -123,24 +123,17 @@ export function useAssistant() {
         setTrace([...steps]);
       };
 
-      // Prose the model emits alongside a write proposal — shown as its own bubble immediately so it
-      // sits ABOVE the confirm card. It carries no `steps`; the trace stays on the final answer.
-      const onMessage = (text: string) => {
-        if (myRun !== runSeq.current) return;
-        setMessages((prev) => [...prev, { id: newId(), role: 'assistant', text }]);
-      };
-
       // The confirmation gate: show the card and pause until the user (or a superseding run) decides.
       const onConfirm = (req: ConfirmRequest) =>
         new Promise<ConfirmDecision>((resolve) => {
-          if (myRun !== runSeq.current) return resolve('reject'); // superseded before we could prompt
+          if (myRun !== runSeq.current) return resolve({ kind: 'reject' }); // superseded before we could prompt
           resolveConfirmRef.current = resolve;
           setPendingWrite(req);
         });
 
       const controller = new AbortController();
       abortRef.current = controller;
-      const res = await runAssistant({ question: text, history, apiKey: key, model, signal: controller.signal, onEvent, onConfirm, onMessage });
+      const res = await runAssistant({ question: text, history, apiKey: key, model, signal: controller.signal, onEvent, onConfirm });
       if (myRun !== runSeq.current || controller.signal.aborted) {
         // Cancelled or superseded — drop the partial trace and append no bubble.
         if (myRun === runSeq.current) setTrace([]);
@@ -168,12 +161,15 @@ export function useAssistant() {
     [messages, sending, userId, model]
   );
 
-  const confirmWrite = useCallback(() => settleConfirm('approve'), [settleConfirm]);
-  const cancelWrite = useCallback(() => settleConfirm('reject'), [settleConfirm]);
+  const confirmWrite = useCallback(
+    (edits?: Record<string, WriteEdit>) => settleConfirm({ kind: 'approve', edits }),
+    [settleConfirm]
+  );
+  const cancelWrite = useCallback(() => settleConfirm({ kind: 'reject' }), [settleConfirm]);
 
   const stop = useCallback(() => {
     runSeq.current++; // ignore any in-flight emit/result from the aborted run
-    settleConfirm('reject'); // a paused write is abandoned, not run
+    settleConfirm({ kind: 'reject' }); // a paused write is abandoned, not run
     abortRef.current?.abort();
     setTrace([]);
     setSending(false);
@@ -181,7 +177,7 @@ export function useAssistant() {
 
   const clear = useCallback(() => {
     runSeq.current++;
-    settleConfirm('reject');
+    settleConfirm({ kind: 'reject' });
     abortRef.current?.abort();
     setMessages([]);
     setTrace([]);
@@ -191,7 +187,7 @@ export function useAssistant() {
   // Cancel any in-flight request (and reject a dangling confirmation) if the component unmounts.
   useEffect(
     () => () => {
-      resolveConfirmRef.current?.('reject');
+      resolveConfirmRef.current?.({ kind: 'reject' });
       resolveConfirmRef.current = null;
       abortRef.current?.abort();
     },

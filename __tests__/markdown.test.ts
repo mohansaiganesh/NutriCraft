@@ -28,6 +28,28 @@ describe('parseInline', () => {
     expect(parseInline('**')).toEqual([{ text: '**' }]);
     expect(parseInline('')).toEqual([{ text: '' }]);
   });
+
+  it('treats underscores INSIDE a word as literal (food ids stay intact)', () => {
+    // The reported bug: `rice_basmati_royal` turned "basmati" italic and dropped the underscores.
+    expect(parseInline('Logged 250 g of rice_basmati_royal to Lunch')).toEqual([
+      { text: 'Logged 250 g of rice_basmati_royal to Lunch' },
+    ]);
+    expect(parseInline('simply_granola_oats_quaker')).toEqual([{ text: 'simply_granola_oats_quaker' }]);
+    expect(parseInline('Logged 450 g of milk_whole_leheb to Dinner')).toEqual([
+      { text: 'Logged 450 g of milk_whole_leheb to Dinner' },
+    ]);
+  });
+
+  it('still honours underscore emphasis at word boundaries', () => {
+    expect(parseInline('that is _a lot_')).toEqual([
+      { text: 'that is ' },
+      { text: 'a lot', italic: true },
+    ]);
+    expect(parseInline('__protein__ matters')).toEqual([
+      { text: 'protein', bold: true },
+      { text: ' matters' },
+    ]);
+  });
 });
 
 describe('parseMarkdown', () => {

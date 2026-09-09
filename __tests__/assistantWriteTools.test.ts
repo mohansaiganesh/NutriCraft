@@ -22,7 +22,7 @@ jest.mock('@/lib/currentUser', () => ({
   requireUserId: () => 'user-1',
 }));
 
-import { describeWrite, executeWrite, isWriteTool } from '@/lib/assistant/tools';
+import { describeWrite, executeWrite, isWriteTool, reviseWrite } from '@/lib/assistant/tools';
 import * as queries from '@/db/queries';
 
 const mockQueries = queries as unknown as Record<string, jest.Mock>;
@@ -50,6 +50,7 @@ describe('describeWrite: log_food', () => {
     expect(r).not.toHaveProperty('error');
     expect(r.payload).toEqual({ date: '2026-09-09', mealType: 'lunch', foodItemId: 'f1', grams: 150 });
     expect(r.summary).toMatch(/150 g of Chicken breast/);
+    expect(r.donePhrase).toMatch(/Logged 150 g of Chicken breast/); // past-tense line for the done bubble
   });
 
   it('rejects non-positive grams', async () => {
@@ -91,6 +92,21 @@ describe('describeWrite: log_food', () => {
     const r: any = await describeWrite('log_food', { foodId: 'f1', grams: 100, mealType: 'lunch', date: '2024-02-29' });
     expect(r).not.toHaveProperty('error');
   });
+
+  it('accepts an omitted meal (does NOT guess) and marks it for the card to ask', async () => {
+    mockQueries.getFood.mockResolvedValue({ id: 'f1', name: 'Oats', userId: 'user-1', deleted: false });
+    const r: any = await describeWrite('log_food', { foodId: 'f1', grams: 20, date: '2026-09-09' });
+    expect(r).not.toHaveProperty('error');
+    expect(r.payload.mealType).toBeNull(); // no meal invented
+    expect(r.editableMeal).toBeNull(); // ⇒ the card requires a pick before Confirm
+    expect(r.summary).toMatch(/20 g of Oats/);
+    expect(r.summary).not.toMatch(/Breakfast|Lunch|Dinner|Snack/); // meal absent until picked
+  });
+
+  it('still rejects a present-but-invalid meal', async () => {
+    mockQueries.getFood.mockResolvedValue({ id: 'f1', name: 'X', userId: 'user-1', deleted: false });
+    expect(await describeWrite('log_food', { foodId: 'f1', grams: 100, mealType: 'brunch' })).toHaveProperty('error');
+  });
 });
 
 describe('describeWrite: update_log_entry', () => {
@@ -109,6 +125,55 @@ describe('describeWrite: update_log_entry', () => {
     const r: any = await describeWrite('update_log_entry', { logId: 'l1', grams: 200 });
     expect(r.payload).toEqual({ id: 'l1', patch: { grams: 200 } });
     expect(r.summary).toMatch(/100 g → 200 g/);
+    expect(r.donePhrase).toMatch(/Updated Rice on .*100 g → 200 g/); // past-tense line
+    expect(r.editableGrams).toBe(200); // grams changes are editable in the card
+  });
+});
+
+describe('describeWrite: editable-grams metadata', () => {
+  it('log_food surfaces editableGrams + editNoun for the confirm card', async () => {
+    mockQueries.getFood.mockResolvedValue({ id: 'f1', name: 'Chicken breast', userId: 'user-1', deleted: false });
+    const r: any = await describeWrite('log_food', { foodId: 'f1', grams: 150, mealType: 'lunch', date: '2026-09-09' });
+    expect(r.editableGrams).toBe(150);
+    expect(r.editNoun).toBe('Chicken breast');
+  });
+});
+
+describe('reviseWrite', () => {
+  it('log_food re-validates and rebuilds with the new grams', async () => {
+    mockQueries.getFood.mockResolvedValue({ id: 'f1', name: 'Chicken breast', userId: 'user-1', deleted: false });
+    const r: any = await reviseWrite('log_food', { date: '2026-09-09', mealType: 'lunch', foodItemId: 'f1', grams: 150 }, { grams: 60 });
+    expect(r).not.toHaveProperty('error');
+    expect(r.payload).toEqual({ date: '2026-09-09', mealType: 'lunch', foodItemId: 'f1', grams: 60 });
+    expect(r.summary).toMatch(/60 g of Chicken breast/);
+    expect(r.donePhrase).toMatch(/Logged 60 g of Chicken breast/); // done line rebuilt with the edit
+    expect(r.editableGrams).toBe(60);
+  });
+
+  it('log_food fills in a picked meal, turning a meal-less proposal into a real one', async () => {
+    mockQueries.getFood.mockResolvedValue({ id: 'f1', name: 'Chicken breast', userId: 'user-1', deleted: false });
+    // Staged with no meal (payload.mealType null); the user picks "dinner" in the card.
+    const r: any = await reviseWrite('log_food', { date: '2026-09-09', mealType: null, foodItemId: 'f1', grams: 150 }, { mealType: 'dinner' });
+    expect(r).not.toHaveProperty('error');
+    expect(r.payload).toEqual({ date: '2026-09-09', mealType: 'dinner', foodItemId: 'f1', grams: 150 });
+    expect(r.summary).toMatch(/Dinner/); // meal now shows in the summary
+    expect(r.editableMeal).toBe('dinner');
+  });
+
+  it('rejects a non-positive edited amount', async () => {
+    mockQueries.getFood.mockResolvedValue({ id: 'f1', name: 'X', userId: 'user-1', deleted: false });
+    expect(await reviseWrite('log_food', { date: '2026-09-09', mealType: 'lunch', foodItemId: 'f1', grams: 150 }, { grams: 0 })).toHaveProperty('error');
+  });
+
+  it('update_log_entry keeps a meal-type change while editing grams', async () => {
+    mockQueries.getLogEntry.mockResolvedValue(logEntry({ grams: 100, mealType: 'lunch' }));
+    const r: any = await reviseWrite('update_log_entry', { id: 'l1', patch: { grams: 200, mealType: 'dinner' } }, { grams: 250 });
+    expect(r.payload).toEqual({ id: 'l1', patch: { grams: 250, mealType: 'dinner' } });
+    expect(r.editableGrams).toBe(250);
+  });
+
+  it('returns an error for a tool with no editable quantity', async () => {
+    expect(await reviseWrite('remove_log_entry', { id: 'l1' }, { grams: 60 })).toHaveProperty('error');
   });
 });
 
@@ -121,6 +186,7 @@ describe('describeWrite: remove_log_entry', () => {
     const r: any = await describeWrite('remove_log_entry', { logId: 'l1' });
     expect(r.destructive).toBe(true);
     expect(r.payload).toEqual({ id: 'l1' });
+    expect(r.donePhrase).toMatch(/Removed Rice \(100 g\)/); // past-tense line
   });
 });
 
@@ -143,6 +209,15 @@ describe('describeWrite: apply_meal_to_day', () => {
     expect(r.payload).toEqual({ mealId: 'm1', date: '2026-09-09', mealType: 'dinner' });
     expect(r.summary).toMatch(/2 items/);
   });
+
+  it('accepts an omitted meal and defers it to the card', async () => {
+    mockQueries.mealsQuery.mockResolvedValue([{ id: 'm1', name: 'Bowl' }]);
+    mockQueries.mealItemsQuery.mockResolvedValue([{}, {}]);
+    const r: any = await describeWrite('apply_meal_to_day', { mealId: 'm1', date: '2026-09-09' });
+    expect(r).not.toHaveProperty('error');
+    expect(r.payload.mealType).toBeNull();
+    expect(r.editableMeal).toBeNull();
+  });
 });
 
 describe('executeWrite', () => {
@@ -151,6 +226,18 @@ describe('executeWrite', () => {
     const r = await executeWrite('log_food', { date: '2026-09-09', mealType: 'lunch', foodItemId: 'f1', grams: 150 });
     expect(mockQueries.addLog).toHaveBeenCalledWith('2026-09-09', 'lunch', 'f1', 150);
     expect(r).toEqual({ logId: 'new-log-id' });
+  });
+
+  it('log_food never persists a null meal (guard behind the card)', async () => {
+    const r = await executeWrite('log_food', { date: '2026-09-09', mealType: null, foodItemId: 'f1', grams: 150 });
+    expect(r).toHaveProperty('error');
+    expect(mockQueries.addLog).not.toHaveBeenCalled();
+  });
+
+  it('apply_meal_to_day never persists a null meal', async () => {
+    const r = await executeWrite('apply_meal_to_day', { mealId: 'm1', date: '2026-09-09', mealType: null });
+    expect(r).toHaveProperty('error');
+    expect(mockQueries.applyMealToDay).not.toHaveBeenCalled();
   });
 
   it('remove_log_entry calls removeLog', async () => {

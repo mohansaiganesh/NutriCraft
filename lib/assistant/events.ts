@@ -102,6 +102,39 @@ export function describeStop(kind: StopReasonKind, detail: string): StopReason {
   return { kind, message, detail };
 }
 
+// ------------------------------------------------------------------ write confirmation message
+
+/** One executed write's outcome: its past-tense phrase (from PendingWrite.donePhrase) and whether it
+ * actually persisted. */
+export interface WriteOutcome {
+  phrase: string;
+  ok: boolean;
+}
+
+/**
+ * Build Nico's post-confirm message DETERMINISTICALLY from the writes that ran, so the numbers always
+ * match what was saved (the small model would otherwise recite its own stale proposal — see
+ * `agent.ts`). Succeeded writes read as a sentence (one) or a bulleted list (many); any failures are
+ * called out plainly.
+ */
+export function writeDoneMessage(outcomes: WriteOutcome[]): string {
+  const done = outcomes.filter((o) => o.ok).map((o) => o.phrase);
+  const failed = outcomes.filter((o) => !o.ok).map((o) => o.phrase);
+
+  const list = (phrases: string[]) =>
+    phrases.length === 1 ? phrases[0] : phrases.map((p) => `- ${p}`).join('\n');
+
+  if (done.length === 0) {
+    // Nothing persisted — lead with the failure so the user isn't told anything was saved.
+    return failed.length
+      ? `I couldn't save your changes:\n${list(failed)}`
+      : "I didn't change anything.";
+  }
+
+  const savedLine = done.length === 1 ? `${done[0]}.` : `Here's what I did as requested:\n${list(done)}`;
+  return failed.length ? `${savedLine}\n\nI couldn't save:\n${list(failed)}` : savedLine;
+}
+
 // ------------------------------------------------------------------ usage totals
 
 /** Rolled-up LLM usage across a trace: how many Gemini calls were sent and their token totals. */

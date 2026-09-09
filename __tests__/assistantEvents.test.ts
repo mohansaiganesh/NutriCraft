@@ -8,6 +8,7 @@ import {
   toolLabel,
   toolResultOk,
   traceUsage,
+  writeDoneMessage,
 } from '@/lib/assistant/events';
 import type { TraceStep } from '@/lib/assistant/events';
 
@@ -46,6 +47,38 @@ describe('toolResultOk / toolErrorMessage', () => {
   it('handles null / scalar results as ok', () => {
     expect(toolResultOk(null)).toBe(true);
     expect(toolResultOk(42)).toBe(true);
+  });
+});
+
+describe('writeDoneMessage', () => {
+  it('renders a single successful write as one past-tense sentence', () => {
+    expect(writeDoneMessage([{ phrase: 'Logged 1342 g of Granola to Today · Dinner', ok: true }])).toBe(
+      'Logged 1342 g of Granola to Today · Dinner.'
+    );
+  });
+
+  it('renders several successful writes as a bulleted list', () => {
+    expect(
+      writeDoneMessage([
+        { phrase: 'Logged 45 g of dates to Today · Breakfast', ok: true },
+        { phrase: 'Logged 100 g of rice to Today · Breakfast', ok: true },
+      ])
+    ).toBe("Here's what I did as requested:\n- Logged 45 g of dates to Today · Breakfast\n- Logged 100 g of rice to Today · Breakfast");
+  });
+
+  it('calls out a partial failure below what did save', () => {
+    const msg = writeDoneMessage([
+      { phrase: 'Logged 45 g of dates to Today · Breakfast', ok: true },
+      { phrase: 'Removed rice from Today · Breakfast', ok: false },
+    ]);
+    expect(msg).toContain('Logged 45 g of dates');
+    expect(msg).toContain("I couldn't save:\nRemoved rice");
+  });
+
+  it('leads with the failure when nothing persisted', () => {
+    expect(writeDoneMessage([{ phrase: 'Logged 45 g of dates to Today · Breakfast', ok: false }])).toBe(
+      "I couldn't save your changes:\nLogged 45 g of dates to Today · Breakfast"
+    );
   });
 });
 

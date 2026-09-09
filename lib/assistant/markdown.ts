@@ -45,13 +45,21 @@ export function parseInline(text: string): MdSpan[] {
   // Find the next matching closer for `marker` starting at `from`; returns -1 if none.
   const findClose = (marker: string, from: number): number => text.indexOf(marker, from);
 
+  // Underscores INSIDE a word are literal (CommonMark rule), so food ids like `rice_basmati_royal`
+  // or `simply_granola_oats` render verbatim instead of turning half the name italic. An `_` marker
+  // opens emphasis only when not glued to a preceding word char, and closes only when not glued to a
+  // following word char. Asterisks keep their looser behaviour (arithmetic is already guarded below).
+  const isWord = (c: string | undefined) => c != null && /[A-Za-z0-9]/.test(c);
+  const underscoreEmphasis = (markerLen: 1 | 2, close: number) =>
+    !isWord(text[i - 1]) && !isWord(text[close + markerLen]);
+
   while (i < text.length) {
     const two = text.slice(i, i + 2);
     const one = text[i];
 
     if (two === '**' || two === '__') {
       const close = findClose(two, i + 2);
-      if (close > i + 1) {
+      if (close > i + 1 && (two === '**' || underscoreEmphasis(2, close))) {
         flush();
         spans.push({ text: text.slice(i + 2, close), bold: true });
         i = close + 2;
@@ -59,8 +67,8 @@ export function parseInline(text: string): MdSpan[] {
       }
     } else if ((one === '*' || one === '_') && text[i + 1] !== one) {
       const close = findClose(one, i + 1);
-      // Require non-empty content and avoid matching an em-marker mid-word for `_`.
-      if (close > i) {
+      // Require non-empty content; for `_`, also require it not to sit mid-word (see isWord above).
+      if (close > i && (one === '*' || underscoreEmphasis(1, close))) {
         flush();
         spans.push({ text: text.slice(i + 1, close), italic: true });
         i = close + 1;

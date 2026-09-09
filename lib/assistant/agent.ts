@@ -5,11 +5,11 @@
  */
 import { callGemini } from './gemini';
 import type { GeminiContent, GeminiPart, GeminiResult } from './gemini';
-import { describeWrite, executeWrite, isWriteTool, runTool } from './tools';
-import type { PendingWrite } from './tools';
+import { describeWrite, executeWrite, isWriteTool, reviseWrite, runTool } from './tools';
+import type { PendingWrite, WriteEdit } from './tools';
 import { newId } from '@/lib/id';
 import { todayISO } from '@/lib/format';
-import { callSignature, describeError, describeStop, toolErrorMessage, toolLabel, toolResultOk } from './events';
+import { callSignature, describeError, describeStop, toolErrorMessage, toolLabel, toolResultOk, writeDoneMessage } from './events';
 import type { AssistantErrorKind, RetryStep, StopReason, StopReasonKind, TraceStep } from './events';
 
 // The loop adapts to observed progress rather than a single flat cap. These are safety BOUNDS, not
@@ -36,8 +36,9 @@ Rules:
 - Be concise, friendly and specific. Lead with the answer, round numbers sensibly, and add at most a short bit of context. If there is no data for the period, say so plainly.
 - Format replies as short plain prose. You may use **bold** for key numbers and simple "- " bullet lists when listing several items — keep formatting minimal. Do not use tables, headings, code blocks, or links.
 - You can log foods and add saved meals to a day using the write tools (log_food, update_log_entry, remove_log_entry, apply_meal_to_day). To log a specific food you must first find it with search_foods and use its id; to edit or remove an entry, first find it with list_day_logs and use its logId.
-- Write tools do NOT take effect immediately. Each one returns { staged: true }, meaning the change is QUEUED — the app shows the user ONE confirmation covering ALL queued changes at the very end. So NEVER ask the user to confirm in prose (no "please confirm", no "let me know if you'd like to proceed"), and NEVER claim a change is done, logged, changed, or removed while you are still staging.
-- Propose every change the user asked for (call the matching write tool once per change; you may include several in a single turn). When every requested change is staged, STOP calling tools and reply with ONE short present-tense sentence naming everything you are about to log (e.g. "I'll add 45 g of dates, 100 g of rice and 150 g of chicken to your breakfast."). When you are then told the changes were applied, reply with a brief PAST-TENSE confirmation of what was logged (e.g. "Added dates, rice and chicken to your breakfast."). If you are told the user declined, say nothing was changed and offer to adjust — do not silently retry.
+- NEVER invent the details of a log. If the user didn't say HOW MUCH they ate (the grams/ml amount), ask them for it in one short plain-text question and do NOT call the write tool yet. You do NOT need to ask which meal — leave mealType off the tool call when they didn't say, and the app will ask them to pick. If the day isn't given, default to today. (Asking for a missing FACT like the amount is expected; it is NOT the same as asking permission to proceed, which you still must never do — see the next rule.)
+- Write tools do NOT take effect immediately. Each one returns { staged: true }, meaning the change is QUEUED — the app shows the user ONE confirmation covering ALL queued changes at the very end. So NEVER ask the user to confirm or approve a staged change in prose (no "please confirm", no "let me know if you'd like to proceed"), and NEVER claim a change is done, logged, changed, or removed while you are still staging.
+- Propose every change the user asked for (call the matching write tool once per change; you may include several in a single turn). When every requested change is staged, STOP calling tools and reply with ONE short present-tense sentence naming everything you are about to log (e.g. "I'll add 45 g of dates, 100 g of rice and 150 g of chicken."). Only name the meal in that sentence if the user actually told you which one. When you are then told the changes were applied, reply with a brief PAST-TENSE confirmation of what was logged (e.g. "Added dates, rice and chicken."). If you are told the user declined, say nothing was changed and offer to adjust — do not silently retry.
 - You cannot create or edit foods, create or rename meals or their items, or change targets/settings. If asked, briefly say so and point the user to the relevant screen (Foods, Meals, or Preferences).`;
 }
 
@@ -72,7 +73,14 @@ export interface ConfirmRequest {
   items: ConfirmItem[]; // one per staged, validated write
   destructive: boolean; // any item is a removal → drives the card's red treatment
 }
-export type ConfirmDecision = 'approve' | 'reject';
+/**
+ * The user's whole-batch decision. On 'approve', `edits` optionally carries per-item changes the
+ * user made in the card — a new grams amount and/or a picked meal, keyed by the confirm-step id —
+ * re-validated by the agent before use.
+ */
+export type ConfirmDecision =
+  | { kind: 'approve'; edits?: Record<string, WriteEdit> }
+  | { kind: 'reject' };
 
 const hasFunctionCall = (
   p: GeminiPart
@@ -107,12 +115,6 @@ export async function runAssistant(opts: {
    * 'reject'; a write NEVER runs without an 'approve'. Omit it and all writes are auto-rejected.
    */
   onConfirm?: (req: ConfirmRequest) => Promise<ConfirmDecision>;
-  /**
-   * Fires with any prose the model emits ALONGSIDE a write proposal, so the UI can show it as a
-   * bubble BEFORE the confirm card. This text is shown once here and never reused as the final
-   * answer, so the pre-write narration can't leak out after the user has already confirmed.
-   */
-  onMessage?: (text: string) => void;
 }): Promise<AssistantResult> {
   // A throwing observer must never break the never-throw loop; dev-log every step here.
   const emit = (s: TraceStep) => {
@@ -230,22 +232,15 @@ export async function runAssistant(opts: {
     return { staged: true };
   };
 
-  /** One extra Gemini round to produce a natural closing message, with a deterministic fallback so
-   * the answer is never empty even if that call fails or returns nothing. */
-  const closingRound = async (instruction: string, iteration: number, fallback: string): Promise<AssistantResult> => {
-    contents.push({ role: 'user', parts: [{ text: instruction }] });
-    const res = await callModel(iteration + 1);
-    if (!res.ok) return { ok: true, text: fallback };
-    const text = res.parts.map((p) => ('text' in p ? p.text : '')).join('').trim();
-    return { ok: true, text: text || fallback };
-  };
-
   /**
-   * End-of-run confirmation for every staged write: surface the model's summary above ONE card, take
-   * a single decision, then execute the whole batch (or none) and close with a natural message. The
-   * per-item confirm trace rows are re-emitted approved/rejected so the trace stays honest.
+   * End-of-run confirmation for every staged write: show ONE card, take a single decision, then
+   * execute the whole batch (or none) and close with a DETERMINISTIC message built from the writes
+   * that actually ran. The per-item confirm trace rows are re-emitted approved/rejected so the trace
+   * stays honest. No extra model round: the closing text is built from each write's donePhrase, so the
+   * numbers can never drift from what was saved (the small model would otherwise recite its own stale
+   * proposal).
    */
-  const confirmStaged = async (intro: string, iteration: number): Promise<AssistantResult> => {
+  const confirmStaged = async (): Promise<AssistantResult> => {
     const rejectAll = () => {
       for (const s of staged) {
         emit({ kind: 'confirm', id: s.stepId, tool: s.name, label: s.label, summary: s.pending.summary, destructive: s.pending.destructive, status: 'rejected' });
@@ -258,41 +253,44 @@ export async function runAssistant(opts: {
       return { ok: true, text: "I didn't change anything." };
     }
 
-    // Show the model's one-sentence summary as a bubble above the single confirm card.
-    if (intro) opts.onMessage?.(intro);
-
     const items: ConfirmItem[] = staged.map((s) => ({ id: s.stepId, label: s.label, ...s.pending }));
     const destructive = staged.some((s) => s.pending.destructive);
-    let decision: ConfirmDecision = 'reject';
+    let decision: ConfirmDecision = { kind: 'reject' };
     try {
       decision = await opts.onConfirm({ id: newId(), items, destructive });
     } catch {
-      decision = 'reject';
+      decision = { kind: 'reject' };
     }
 
-    if (decision !== 'approve' || opts.signal?.aborted) {
+    if (decision.kind !== 'approve' || opts.signal?.aborted) {
       rejectAll();
-      return closingRound(
-        'The user declined, so nothing was changed. Briefly acknowledge that nothing was logged and offer to adjust.',
-        iteration,
-        "Okay — I haven't changed anything. Let me know if you'd like to adjust it."
-      );
+      return { ok: true, text: "Okay — I haven't changed anything. Let me know if you'd like to adjust it." };
     }
 
-    // Approved: execute each staged write in order and re-emit its trace row with the result.
-    const outcomes: string[] = [];
+    // Apply any edits the user made in the card (grams and/or the picked meal) BEFORE executing, so
+    // the trace row, the executed payload, and the outcome summary all reflect the final choices.
+    // Re-validated via reviseWrite; a bad revise keeps the original staged write (the UI blocks
+    // invalid input, so this is a guard).
+    const edits = decision.edits ?? {};
+    for (const s of staged) {
+      const edit = edits[s.stepId];
+      if (edit == null || (edit.grams == null && edit.mealType == null)) continue;
+      const revised = await reviseWrite(s.name, s.pending.payload, edit);
+      if (toolResultOk(revised)) s.pending = revised as PendingWrite;
+    }
+
+    // Approved: execute each staged write in order and re-emit its trace row with the result. The
+    // closing message is built deterministically from each write's past-tense donePhrase (already
+    // rebuilt above if the user edited it), so it always matches what was saved.
+    const outcomes: { phrase: string; ok: boolean }[] = [];
     for (const s of staged) {
       const result = await executeWrite(s.name, s.pending.payload);
       const ok = result != null && typeof result === 'object' && !('error' in result);
       emit({ kind: 'confirm', id: s.stepId, tool: s.name, label: s.label, summary: s.pending.summary, destructive: s.pending.destructive, status: 'approved', result });
-      outcomes.push(`${s.pending.summary}${ok ? '' : ' (failed)'}`);
+      outcomes.push({ phrase: s.pending.donePhrase, ok });
     }
 
-    return closingRound(
-      `The changes were applied: ${outcomes.join('; ')}. Reply with a brief past-tense confirmation of what was logged.`,
-      iteration,
-      'Done — your changes have been logged.'
-    );
+    return { ok: true, text: writeDoneMessage(outcomes) };
   };
 
   for (let i = 0; i < MAX_ROUNDS; i++) {
@@ -313,7 +311,7 @@ export async function runAssistant(opts: {
     if (calls.length === 0) {
       // The model is done. If it staged any writes, confirm them all at once now; otherwise this is
       // a plain answer.
-      if (staged.length > 0) return confirmStaged(roundText || lastText, i);
+      if (staged.length > 0) return confirmStaged();
       return { ok: true, text: roundText || lastText || "I couldn't find an answer to that." };
     }
 
@@ -362,6 +360,6 @@ export async function runAssistant(opts: {
 
   // Ran out of rounds. If writes were staged but never confirmed, confirm them now rather than
   // dropping them silently; otherwise show whatever partial text we have.
-  if (staged.length > 0) return confirmStaged(lastText, MAX_ROUNDS);
+  if (staged.length > 0) return confirmStaged();
   return finishEarly('round_limit', `Stopped after the ${MAX_ROUNDS}-round ceiling.`, MAX_ROUNDS);
 }

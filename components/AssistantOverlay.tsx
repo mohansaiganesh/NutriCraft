@@ -23,6 +23,9 @@ import { settingsQuery } from '@/db/queries';
 import { useAssistant } from '@/lib/assistant/useAssistant';
 import type { Message } from '@/lib/assistant/useAssistant';
 import type { ConfirmRequest } from '@/lib/assistant/agent';
+import type { WriteEdit } from '@/lib/assistant/tools';
+import { MEAL_TYPES } from '@/constants/meals';
+import type { MealType } from '@/constants/meals';
 import { AVAILABLE_MODELS } from '@/lib/assistant/gemini';
 import { errorTitle, previewJson, traceUsage } from '@/lib/assistant/events';
 import type { StopReason, TraceStep } from '@/lib/assistant/events';
@@ -293,7 +296,7 @@ function Bubble({ message }: { message: Message }) {
 
   const hasTrace = !!message.steps?.length;
   return (
-    <View className="self-start max-w-[88%] rounded-3xl rounded-bl-lg px-4 py-[10px] border bg-card border-hair">
+    <View className="self-start w-[88%] rounded-3xl rounded-bl-lg px-4 py-[10px] border bg-card border-hair">
       <MarkdownText blocks={parseMarkdown(message.text)} />
       {message.stoppedEarly ? <StoppedEarlyNotice reason={message.stoppedEarly} /> : null}
       {hasTrace ? <StepsDisclosure steps={message.steps!} /> : null}
@@ -418,7 +421,7 @@ function MarkdownText({ blocks }: { blocks: MdBlock[] }) {
       {blocks.map((b, i) => {
         if (b.type === 'paragraph') {
           return (
-            <Text key={i} className="font-body text-[14.5px] leading-5 text-ink">
+            <Text key={i} className="font-body text-[14.5px] leading-6 text-ink">
               <InlineSpans spans={b.spans} />
             </Text>
           );
@@ -429,13 +432,13 @@ function MarkdownText({ blocks }: { blocks: MdBlock[] }) {
             {b.items.map((item, j) => (
               <View key={j} className="flex-row">
                 <Text
-                  className={`text-[14.5px] leading-5 mr-2 ${
+                  className={`text-[14.5px] leading-6 mr-2 ${
                     ordered ? 'font-body-sb text-ink2' : 'font-body-b text-brand'
                   }`}
                 >
                   {ordered ? `${j + 1}.` : '•'}
                 </Text>
-                <Text className="flex-1 font-body text-[14.5px] leading-5 text-ink">
+                <Text className="flex-1 font-body text-[14.5px] leading-6 text-ink">
                   <InlineSpans spans={item} />
                 </Text>
               </View>
@@ -449,26 +452,96 @@ function MarkdownText({ blocks }: { blocks: MdBlock[] }) {
 
 /** The batch of writes Nico proposes, paused for a SINGLE decision. Nothing is persisted until
  * Confirm is tapped. An all-removal batch gets the red treatment; a batch with any removal marks
- * those rows in red so a delete never hides among routine logs. One item reads as a single line. */
+ * those rows in red so a delete never hides among routine logs. One item reads as a single line.
+ * Tapping Edit turns each grams-bearing row into a numeric input so the user can fix amounts before
+ * confirming; the edited grams ride back on `onConfirm(edits)`, keyed by each item's id.
+ * Rows that carry `editableMeal` show a meal picker inline — and when Nico DIDN'T know the meal
+ * (editableMeal === null) the user MUST pick one before Confirm enables, so a food is never logged
+ * to a guessed meal. */
 function ConfirmCard({
   req,
   onConfirm,
   onCancel,
 }: {
   req: ConfirmRequest;
-  onConfirm: () => void;
+  onConfirm: (edits?: Record<string, WriteEdit>) => void;
   onCancel: () => void;
 }) {
   const items = req.items;
   const multi = items.length > 1;
   const allDestructive = items.length > 0 && items.every((i) => i.destructive);
+  const anyEditable = items.some((i) => i.editableGrams != null);
+  const [editing, setEditing] = useState(false);
+  const [drafts, setDrafts] = useState<Record<string, string>>({}); // item id → grams text (this session)
+  // Amounts the user has saved but NOT yet finalized — kept across editing sessions, submitted only
+  // when the main card's Confirm is tapped. Holds only rows that differ from their original grams.
+  const [savedEdits, setSavedEdits] = useState<Record<string, number>>({});
+  // The meal chosen per row. Seeded from the write's own meal when it had one; a row that reached
+  // the card with no meal (editableMeal === null) starts unset and blocks Confirm until picked.
+  const [mealDrafts, setMealDrafts] = useState<Record<string, MealType>>(() => {
+    const seed: Record<string, MealType> = {};
+    for (const it of items) if (it.editableMeal) seed[it.id] = it.editableMeal;
+    return seed;
+  });
+  const mealRows = items.filter((i) => i.editableMeal !== undefined);
+  const mealMissing = mealRows.some((i) => mealDrafts[i.id] == null); // a meal still needs picking
   const title = allDestructive
     ? multi
       ? 'Confirm removals'
       : 'Confirm removal'
-    : multi
-      ? 'Confirm these changes'
-      : 'Confirm this change';
+    : editing
+      ? multi
+        ? 'Edit amounts'
+        : 'Edit amount'
+      : multi
+        ? 'Confirm these changes'
+        : 'Confirm this change';
+
+  const startEditing = () => {
+    const seed: Record<string, string> = {};
+    // Pre-fill from the last saved amount if there is one, otherwise the model's original grams.
+    for (const it of items) if (it.editableGrams != null) seed[it.id] = String(savedEdits[it.id] ?? it.editableGrams);
+    setDrafts(seed);
+    setEditing(true);
+  };
+
+  // A draft is valid only as a positive number; an invalid field blocks Save so no bad grams stick.
+  const parsed = (id: string): number | null => {
+    const n = Number(drafts[id]);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const anyInvalid = editing && items.some((i) => i.editableGrams != null && parsed(i.id) === null);
+
+  // Save/Cancel stay inside the card: neither finalizes. Save stashes the changed amounts and returns
+  // to the main card; Cancel just drops this session's drafts.
+  const saveEdits = () => {
+    if (anyInvalid) return;
+    const next: Record<string, number> = {};
+    for (const it of items) {
+      if (it.editableGrams == null) continue;
+      const n = parsed(it.id);
+      if (n != null && n !== it.editableGrams) next[it.id] = n; // keep only what actually changed
+    }
+    setSavedEdits(next);
+    setEditing(false);
+  };
+  const cancelEditing = () => setEditing(false);
+
+  // Main-card Confirm is the only thing that finalizes, carrying whatever was saved: the edited
+  // grams and any meal the user picked (sent only when it differs from the write's original meal).
+  const confirm = () => {
+    if (mealMissing) return; // guarded by the disabled button too — never confirm a meal-less log
+    const edits: Record<string, WriteEdit> = {};
+    for (const it of items) {
+      const e: WriteEdit = {};
+      if (savedEdits[it.id] != null) e.grams = savedEdits[it.id];
+      const meal = mealDrafts[it.id];
+      if (meal != null && meal !== it.editableMeal) e.mealType = meal;
+      if (e.grams != null || e.mealType != null) edits[it.id] = e;
+    }
+    onConfirm(Object.keys(edits).length ? edits : undefined);
+  };
+
   return (
     <View
       className={`self-start w-[88%] rounded-3xl rounded-bl-lg px-4 py-3 border ${
@@ -486,35 +559,161 @@ function ConfirmCard({
         <Text className={`font-body-b text-[13px] ${allDestructive ? 'text-over' : 'text-brand'}`}>{title}</Text>
       </View>
 
-      {multi ? (
-        <View className="gap-1.5 mb-3">
+      {editing ? (
+        <View className="gap-2 mb-1">
+          {items.map((item) =>
+            item.editableGrams != null ? (
+              <View key={item.id} className="flex-row items-center gap-2">
+                <Text className="flex-1 font-body text-[14px] leading-5 text-ink" numberOfLines={2}>
+                  {item.editNoun}
+                </Text>
+                <TextInput
+                  value={drafts[item.id] ?? ''}
+                  onChangeText={(t) => setDrafts((d) => ({ ...d, [item.id]: t }))}
+                  keyboardType="numeric"
+                  selectTextOnFocus
+                  accessibilityLabel={`Grams of ${item.editNoun}`}
+                  className="w-[72px] text-right rounded-xl border border-[#DCE5D4] bg-card px-2.5 py-[7px] text-[14px] font-body-md text-ink"
+                />
+                <Text className="font-body-md text-[13px] text-ink3 w-[14px]">g</Text>
+              </View>
+            ) : (
+              // Non-editable rows (removals, meal bundles) stay as-is even in edit mode.
+              <View key={item.id} className="flex-row">
+                <Text className={`text-[14px] leading-5 mr-2 ${item.destructive ? 'text-over' : 'font-body-b text-brand'}`}>•</Text>
+                <Text className={`flex-1 font-body text-[14px] leading-5 ${item.destructive ? 'text-over' : 'text-ink'}`}>
+                  {item.summary}
+                </Text>
+              </View>
+            )
+          )}
+          <Text className={`font-body text-[11.5px] text-[#B0433F] ${anyInvalid ? '' : 'opacity-0'}`}>
+            Enter an amount greater than 0.
+          </Text>
+        </View>
+      ) : multi ? (
+        <View className="gap-2 mb-3">
           {items.map((item) => (
-            <View key={item.id} className="flex-row">
-              <Text className={`text-[14px] leading-5 mr-2 ${item.destructive ? 'text-over' : 'font-body-b text-brand'}`}>•</Text>
-              <Text className={`flex-1 font-body text-[14px] leading-5 ${item.destructive ? 'text-over' : 'text-ink'}`}>
-                {item.summary}
-              </Text>
+            <View key={item.id} className="gap-1">
+              <View className="flex-row items-baseline">
+                <Text className={`text-[14px] leading-5 mr-2 ${item.destructive ? 'text-over' : 'font-body-b text-brand'}`}>•</Text>
+                <Text className={`flex-1 font-body text-[14px] leading-5 ${item.destructive ? 'text-over' : 'text-ink'}`}>
+                  {item.summary}
+                  {savedEdits[item.id] != null ? (
+                    <Text className="font-body-sb text-[12px] text-brand">{`  → ${savedEdits[item.id]} g`}</Text>
+                  ) : null}
+                </Text>
+              </View>
+              {item.editableMeal !== undefined ? (
+                <View className="pl-4">
+                  <MealPicker
+                    value={mealDrafts[item.id] ?? null}
+                    onPick={(m) => setMealDrafts((d) => ({ ...d, [item.id]: m }))}
+                  />
+                </View>
+              ) : null}
             </View>
           ))}
         </View>
       ) : (
-        <Text className="font-body text-[14px] leading-5 text-ink mb-3">{items[0]?.summary}</Text>
+        <View className="mb-3">
+          <Text className="font-body text-[14px] leading-5 text-ink">
+            {items[0]?.summary}
+            {items[0] && savedEdits[items[0].id] != null ? (
+              <Text className="font-body-sb text-[12px] text-brand">{`  → ${savedEdits[items[0].id]} g`}</Text>
+            ) : null}
+          </Text>
+          {items[0] && items[0].editableMeal !== undefined ? (
+            <MealPicker
+              value={mealDrafts[items[0].id] ?? null}
+              onPick={(m) => setMealDrafts((d) => ({ ...d, [items[0].id]: m }))}
+            />
+          ) : null}
+        </View>
       )}
 
-      <View className="flex-row justify-end gap-2">
-        <Pressable
-          onPress={onCancel}
-          className="rounded-full px-4 py-[9px] border border-hair bg-card active:opacity-80"
-        >
-          <Text className="font-body-sb text-[13px] text-ink2">Cancel</Text>
-        </Pressable>
-        <Pressable
-          onPress={onConfirm}
-          className={`rounded-full px-4 py-[9px] active:opacity-90 ${allDestructive ? 'bg-[#E03131]' : 'bg-brand'}`}
-        >
-          <Text className="font-body-b text-[13px] text-white">{allDestructive ? 'Remove' : 'Confirm'}</Text>
-        </Pressable>
-      </View>
+      {!editing && mealMissing ? (
+        <Text className="font-body text-[12px] leading-4 text-ink3 -mt-1 mb-2">
+          Pick a meal to log this to.
+        </Text>
+      ) : null}
+
+      {editing ? (
+        // Edit mode: Cancel/Save both return to the main card without finalizing anything.
+        <View className="flex-row justify-end items-center gap-2">
+          <Pressable
+            onPress={cancelEditing}
+            className="rounded-full px-4 py-[9px] border border-hair bg-card active:opacity-80"
+          >
+            <Text className="font-body-sb text-[13px] text-ink2">Cancel</Text>
+          </Pressable>
+          <Pressable
+            onPress={saveEdits}
+            disabled={anyInvalid}
+            className={`rounded-full px-4 py-[9px] active:opacity-90 ${anyInvalid ? 'bg-[#CFE0C6]' : 'bg-brand'}`}
+          >
+            <Text className="font-body-b text-[13px] text-white">Save</Text>
+          </Pressable>
+        </View>
+      ) : (
+        // Main card: only these finalize — Confirm commits (with any saved edits), Cancel rejects.
+        <View className="flex-row justify-end items-center gap-2">
+          <Pressable
+            onPress={onCancel}
+            className="rounded-full px-4 py-[9px] border border-hair bg-card active:opacity-80"
+          >
+            <Text className="font-body-sb text-[13px] text-ink2">Cancel</Text>
+          </Pressable>
+          {anyEditable ? (
+            <Pressable
+              onPress={startEditing}
+              className="rounded-full px-4 py-[9px] border border-[#CDE9D3] bg-card active:opacity-80"
+            >
+              <Text className="font-body-sb text-[13px] text-brand">Edit</Text>
+            </Pressable>
+          ) : null}
+          <Pressable
+            onPress={confirm}
+            disabled={mealMissing}
+            className={`rounded-full px-4 py-[9px] active:opacity-90 ${
+              mealMissing ? 'bg-[#CFE0C6]' : allDestructive ? 'bg-[#E03131]' : 'bg-brand'
+            }`}
+          >
+            <Text className="font-body-b text-[13px] text-white">{allDestructive ? 'Remove' : 'Confirm'}</Text>
+          </Pressable>
+        </View>
+      )}
+    </View>
+  );
+}
+
+/** The four meal chips on a confirm row. `value` null ⇒ nothing chosen yet (Nico didn't know the
+ * meal); tapping one selects it (and re-selecting is how the user corrects a meal Nico guessed).
+ * Uses each meal's own tint so the choice reads at a glance, matching the day screen's meal colors. */
+function MealPicker({ value, onPick }: { value: MealType | null; onPick: (m: MealType) => void }) {
+  return (
+    <View className="flex-row flex-wrap gap-1.5 mt-1.5">
+      {MEAL_TYPES.map((m) => {
+        const active = value === m.key;
+        return (
+          <Pressable
+            key={m.key}
+            onPress={() => onPick(m.key)}
+            accessibilityRole="button"
+            accessibilityState={{ selected: active }}
+            accessibilityLabel={m.label}
+            className={`rounded-full px-3 py-[6px] border ${active ? '' : 'bg-card border-[#DCE5D4]'} active:opacity-80`}
+            style={active ? { backgroundColor: m.tintBg, borderColor: m.tint } : undefined}
+          >
+            <Text
+              className={`font-body-sb text-[12.5px] ${active ? '' : 'text-ink2'}`}
+              style={active ? { color: m.tint } : undefined}
+            >
+              {m.label}
+            </Text>
+          </Pressable>
+        );
+      })}
     </View>
   );
 }

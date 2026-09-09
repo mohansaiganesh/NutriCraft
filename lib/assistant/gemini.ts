@@ -21,12 +21,13 @@ const ALL_FUNCTION_DECLARATIONS = [...FUNCTION_DECLARATIONS, ...WRITE_FUNCTION_D
 export const AVAILABLE_MODELS: { id: string; label: string }[] = [
   { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash' },
   { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash-Lite' },
+  { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite' },
   { id: 'gemma-4-31b-it', label: 'Gemma 4 31B' },
   { id: 'gemma-4-26b-a4b-it', label: 'Gemma 4 26B' },
 ];
 
 /** Default model when the user hasn't picked one. Override via EXPO_PUBLIC_GEMINI_MODEL. */
-export const DEFAULT_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.6-flash';
+export const DEFAULT_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.5-flash-lite';
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const TIMEOUT_MS = 30_000; // LLM calls are slower than the 6s food-search bound.

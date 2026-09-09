@@ -328,9 +328,21 @@ export const FUNCTION_DECLARATIONS = [
 /** A proposed write, surfaced to the user for Confirm/Cancel before anything is persisted. */
 export interface PendingWrite {
   tool: string; // raw write-tool name, e.g. 'log_food'
-  summary: string; // human-readable operation, built from resolved data (never the model's prose)
+  summary: string; // present-tense operation for the card, built from resolved data (never the model's prose)
+  donePhrase: string; // past-tense statement for the deterministic post-confirm message (same data)
   destructive?: boolean; // a delete — rendered with the red treatment on the card
+  editableGrams?: number; // current grams — its presence marks the item as grams-editable in the card
+  editNoun?: string; // what's being measured (the food/entry name) — labels the card's grams input
+  // Present ⇒ the row shows a meal picker in the card. `null` ⇒ no meal chosen yet: the user MUST
+  // pick one before the batch can be confirmed (we never guess a meal or persist a null one).
+  editableMeal?: MealType | null;
   payload: unknown; // normalized args handed straight to execute()
+}
+
+/** Per-item edits the user made in the confirm card, re-validated before a write runs. */
+export interface WriteEdit {
+  grams?: number;
+  mealType?: MealType;
 }
 
 // ---- arg validation (throws a user-legible message the loop turns into a tool error) ----
@@ -346,6 +358,14 @@ function reqMealType(v: unknown): MealType {
   const hit = MEAL_TYPES.find((m) => m.key === s);
   if (!hit) throw new Error(`mealType must be one of: ${MEAL_TYPES.map((m) => m.key).join(', ')}.`);
   return hit.key;
+}
+
+/** Like reqMealType but tolerant of ABSENCE: an omitted/empty meal returns null (the user didn't say
+ * which — the card asks for it), while a present-but-invalid value still throws so a bad string can't
+ * slip through as "unset". */
+function optMealType(v: unknown): MealType | null {
+  if (v == null || v === '') return null;
+  return reqMealType(v);
 }
 
 /** Defaults to today; a supplied date must be a REAL ISO calendar day (the shape check alone would
@@ -382,23 +402,84 @@ async function resolveVisibleFood(id: string) {
 type WriteTool = {
   describe: (args: any) => Promise<PendingWrite>;
   execute: (payload: any) => Promise<unknown>;
+  /** Rebuild the write with the user's card edits (a new grams amount and/or a picked meal).
+   * Re-validates + re-resolves through the same path as describe, so nothing is trusted raw. */
+  revise?: (payload: any, edits: WriteEdit) => Promise<PendingWrite>;
 };
+
+// Shared builders so describe() and revise() can never drift on summary text or payload shape.
+
+type ResolvedFood = { id: string; name: string };
+
+function buildLogFoodPending(food: ResolvedFood, grams: number, date: string, mealType: MealType | null): PendingWrite {
+  // With no meal yet, the summary omits it so the card's picker is clearly the thing to complete;
+  // donePhrase always names a meal because execute is blocked until one is picked.
+  const where = mealType ? `${dateLabel(date)} · ${mealLabel(mealType)}` : dateLabel(date);
+  return {
+    tool: 'log_food',
+    summary: `Log ${grams} g of ${food.name} to ${where}`,
+    donePhrase: `Logged ${grams} g of ${food.name} to ${dateLabel(date)} · ${mealLabel(mealType ?? 'breakfast')}`,
+    editableGrams: grams,
+    editNoun: food.name,
+    editableMeal: mealType,
+    payload: { date, mealType, foodItemId: food.id, grams },
+  };
+}
+
+type UpdateEntry = { log: { grams: number; mealType: string; loggedDate: string }; food: { name: string } };
+
+function buildUpdatePending(entry: UpdateEntry, logId: string, patch: { grams?: number; mealType?: MealType }): PendingWrite {
+  const parts: string[] = [];
+  if (patch.grams != null) parts.push(`${entry.log.grams} g → ${patch.grams} g`);
+  if (patch.mealType != null) parts.push(`${mealLabel(entry.log.mealType as MealType)} → ${mealLabel(patch.mealType)}`);
+  return {
+    tool: 'update_log_entry',
+    summary: `Edit ${entry.food.name} on ${dateLabel(entry.log.loggedDate)}: ${parts.join(', ')}`,
+    donePhrase: `Updated ${entry.food.name} on ${dateLabel(entry.log.loggedDate)}: ${parts.join(', ')}`,
+    // Only offer grams editing when this change actually adjusts grams.
+    ...(patch.grams != null ? { editableGrams: patch.grams, editNoun: entry.food.name } : {}),
+    payload: { id: logId, patch },
+  };
+}
+
+function buildApplyMealPending(
+  mealName: string,
+  itemCount: number,
+  mealId: string,
+  date: string,
+  mealType: MealType | null
+): PendingWrite {
+  const noun = `${itemCount} ${itemCount === 1 ? 'item' : 'items'}`;
+  const where = mealType ? `${dateLabel(date)} · ${mealLabel(mealType)}` : dateLabel(date);
+  return {
+    tool: 'apply_meal_to_day',
+    summary: `Add meal "${mealName}" (${noun}) to ${where}`,
+    donePhrase: `Added meal "${mealName}" (${noun}) to ${dateLabel(date)} · ${mealLabel(mealType ?? 'breakfast')}`,
+    editableMeal: mealType,
+    payload: { mealId, date, mealType },
+  };
+}
 
 export const WRITE_TOOLS: Record<string, WriteTool> = {
   log_food: {
     async describe(args) {
       const foodItemId = reqString(args.foodId, 'foodId');
       const grams = reqGrams(args.grams);
-      const mealType = reqMealType(args.mealType);
+      const mealType = optMealType(args.mealType); // null ⇒ the card asks the user to pick
       const date = optDate(args.date);
       const food = await resolveVisibleFood(foodItemId);
-      return {
-        tool: 'log_food',
-        summary: `Log ${grams} g of ${food.name} to ${dateLabel(date)} · ${mealLabel(mealType)}`,
-        payload: { date, mealType, foodItemId, grams },
-      };
+      return buildLogFoodPending(food, grams, date, mealType);
+    },
+    async revise(p, edits) {
+      const g = edits.grams != null ? reqGrams(edits.grams) : reqGrams(p.grams);
+      const mealType = edits.mealType ?? (p.mealType as MealType | null);
+      const food = await resolveVisibleFood(p.foodItemId);
+      return buildLogFoodPending(food, g, p.date, mealType);
     },
     async execute(p) {
+      // Never persist a null meal — daily_logs.meal_type is NOT NULL. The card blocks this, so it's
+      // a defensive guard against a write reaching execute without a picked meal.
+      if (p.mealType == null) return { error: 'Pick a meal before logging.' };
       return { logId: await addLog(p.date, p.mealType, p.foodItemId, p.grams) };
     },
   },
@@ -409,21 +490,17 @@ export const WRITE_TOOLS: Record<string, WriteTool> = {
       const entry = await getLogEntry(logId); // user-scoped — refuses another account's / a bad id
       if (!entry) throw new Error('That log entry could not be found (it may not be yours).');
       const patch: { grams?: number; mealType?: MealType } = {};
-      const parts: string[] = [];
-      if (args.grams != null) {
-        patch.grams = reqGrams(args.grams);
-        parts.push(`${entry.log.grams} g → ${patch.grams} g`);
-      }
-      if (args.mealType != null) {
-        patch.mealType = reqMealType(args.mealType);
-        parts.push(`${mealLabel(entry.log.mealType)} → ${mealLabel(patch.mealType)}`);
-      }
-      if (parts.length === 0) throw new Error('Provide grams and/or mealType to change.');
-      return {
-        tool: 'update_log_entry',
-        summary: `Edit ${entry.food.name} on ${dateLabel(entry.log.loggedDate)}: ${parts.join(', ')}`,
-        payload: { id: logId, patch },
-      };
+      if (args.grams != null) patch.grams = reqGrams(args.grams);
+      if (args.mealType != null) patch.mealType = reqMealType(args.mealType);
+      if (patch.grams == null && patch.mealType == null) throw new Error('Provide grams and/or mealType to change.');
+      return buildUpdatePending(entry, logId, patch);
+    },
+    async revise(p, edits) {
+      const entry = await getLogEntry(p.id);
+      if (!entry) throw new Error('That log entry could not be found (it may not be yours).');
+      // The card only edits grams for this tool; keep any meal-type change from the original proposal.
+      const patch = { ...p.patch, grams: reqGrams(edits.grams ?? p.patch.grams) };
+      return buildUpdatePending(entry, p.id, patch);
     },
     async execute(p) {
       await updateLog(p.id, p.patch);
@@ -439,6 +516,7 @@ export const WRITE_TOOLS: Record<string, WriteTool> = {
       return {
         tool: 'remove_log_entry',
         summary: `Remove ${entry.food.name} (${entry.log.grams} g) from ${dateLabel(entry.log.loggedDate)} · ${mealLabel(entry.log.mealType)}`,
+        donePhrase: `Removed ${entry.food.name} (${entry.log.grams} g) from ${dateLabel(entry.log.loggedDate)} · ${mealLabel(entry.log.mealType)}`,
         destructive: true,
         payload: { id: logId },
       };
@@ -452,19 +530,23 @@ export const WRITE_TOOLS: Record<string, WriteTool> = {
   apply_meal_to_day: {
     async describe(args) {
       const mealId = reqString(args.mealId, 'mealId');
-      const mealType = reqMealType(args.mealType);
+      const mealType = optMealType(args.mealType); // null ⇒ the card asks the user to pick
       const date = optDate(args.date);
       const meal = (await mealsQuery()).find((m) => m.id === mealId); // user-scoped
       if (!meal) throw new Error('That meal could not be found (it may not be yours).');
       const items = await mealItemsQuery(mealId);
       if (items.length === 0) throw new Error('That meal has no items to add.');
-      return {
-        tool: 'apply_meal_to_day',
-        summary: `Add meal "${meal.name}" (${items.length} ${items.length === 1 ? 'item' : 'items'}) to ${dateLabel(date)} · ${mealLabel(mealType)}`,
-        payload: { mealId, date, mealType },
-      };
+      return buildApplyMealPending(meal.name, items.length, mealId, date, mealType);
+    },
+    async revise(p, edits) {
+      const meal = (await mealsQuery()).find((m) => m.id === p.mealId);
+      if (!meal) throw new Error('That meal could not be found (it may not be yours).');
+      const items = await mealItemsQuery(p.mealId);
+      const mealType = edits.mealType ?? (p.mealType as MealType | null);
+      return buildApplyMealPending(meal.name, items.length, p.mealId, p.date, mealType);
     },
     async execute(p) {
+      if (p.mealType == null) return { error: 'Pick a meal before adding this.' };
       return { added: await applyMealToDay(p.mealId, p.date, p.mealType) };
     },
   },
@@ -483,6 +565,23 @@ export async function describeWrite(name: string, args: unknown): Promise<Pendin
   }
 }
 
+/** Rebuild a staged write with the user's card edits — a new grams amount and/or a picked meal
+ * (never throws — a bad value or a non-editable tool becomes an { error } the caller keeps the
+ * original write for). */
+export async function reviseWrite(
+  name: string,
+  payload: unknown,
+  edits: WriteEdit
+): Promise<PendingWrite | { error: string }> {
+  const tool = WRITE_TOOLS[name];
+  if (!tool?.revise) return { error: 'This item can’t be edited.' };
+  try {
+    return await tool.revise(payload as any, edits);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : 'Invalid edit' };
+  }
+}
+
 /** Run a previously-described write's mutation (only ever called after the user approves). */
 export async function executeWrite(name: string, payload: unknown): Promise<unknown> {
   const tool = WRITE_TOOLS[name];
@@ -495,6 +594,9 @@ export async function executeWrite(name: string, payload: unknown): Promise<unkn
 }
 
 const MEAL_TYPE_DESC = `One of: ${MEAL_TYPES.map((m) => m.key).join(', ')}.`;
+// For log_food / apply_meal_to_day: the meal is optional at the tool boundary on purpose. Omit it
+// when the user didn't say which meal — the app asks them — rather than guessing one.
+const OPT_MEAL_TYPE_DESC = `Which meal: ${MEAL_TYPES.map((m) => m.key).join(', ')}. Omit entirely if the user didn't say which — never guess a meal.`;
 
 /** Gemini function declarations for the write tools — merged with the read set in gemini.ts. */
 export const WRITE_FUNCTION_DECLARATIONS = [
@@ -507,10 +609,10 @@ export const WRITE_FUNCTION_DECLARATIONS = [
       properties: {
         foodId: { ...STR, description: 'The food id from search_foods.' },
         grams: { type: 'NUMBER' as const, description: 'Amount to log, in grams/ml. Must be > 0.' },
-        mealType: { ...STR, description: MEAL_TYPE_DESC },
+        mealType: { ...STR, description: OPT_MEAL_TYPE_DESC },
         date: { ...STR, description: 'Day to log to, YYYY-MM-DD. Defaults to today if omitted.' },
       },
-      required: ['foodId', 'grams', 'mealType'],
+      required: ['foodId', 'grams'],
     },
   },
   {
@@ -545,10 +647,10 @@ export const WRITE_FUNCTION_DECLARATIONS = [
       type: 'OBJECT',
       properties: {
         mealId: { ...STR, description: 'The meal id from list_meals or list_meals_with_totals.' },
-        mealType: { ...STR, description: MEAL_TYPE_DESC },
+        mealType: { ...STR, description: OPT_MEAL_TYPE_DESC },
         date: { ...STR, description: 'Day to add to, YYYY-MM-DD. Defaults to today if omitted.' },
       },
-      required: ['mealId', 'mealType'],
+      required: ['mealId'],
     },
   },
 ];

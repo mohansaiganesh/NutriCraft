@@ -28,6 +28,18 @@ export interface Message {
   steps?: TraceStep[];
 }
 
+/** Merge adjacent same-role turns (joining text with a blank line) so a two-bubble logging turn
+ * reads as one model turn to Gemini. Alternating histories pass through unchanged. */
+function coalesceTurns(turns: ChatTurn[]): ChatTurn[] {
+  const out: ChatTurn[] = [];
+  for (const t of turns) {
+    const last = out[out.length - 1];
+    if (last && last.role === t.role) last.text = `${last.text}\n\n${t.text}`;
+    else out.push({ ...t });
+  }
+  return out;
+}
+
 export function useAssistant() {
   const { userId } = useSession();
   const [messages, setMessages] = useState<Message[]>([]);
@@ -87,10 +99,13 @@ export function useAssistant() {
       }
       setHasKey(true);
 
-      // History = prior non-error turns, captured before we append the new question.
-      const history: ChatTurn[] = messages
-        .filter((m) => !m.error)
-        .map((m) => ({ role: m.role, text: m.text }));
+      // History = prior non-error turns, captured before we append the new question. A logging turn
+      // can leave two assistant bubbles (the pre-write intro + the post-confirm result), so coalesce
+      // adjacent same-role turns into one — a no-op for plain alternating chats, and it keeps Gemini
+      // from seeing two back-to-back model turns.
+      const history = coalesceTurns(
+        messages.filter((m) => !m.error).map((m) => ({ role: m.role, text: m.text }))
+      );
 
       setMessages((prev) => [...prev, { id: newId(), role: 'user', text }]);
       setSending(true);
@@ -108,6 +123,13 @@ export function useAssistant() {
         setTrace([...steps]);
       };
 
+      // Prose the model emits alongside a write proposal — shown as its own bubble immediately so it
+      // sits ABOVE the confirm card. It carries no `steps`; the trace stays on the final answer.
+      const onMessage = (text: string) => {
+        if (myRun !== runSeq.current) return;
+        setMessages((prev) => [...prev, { id: newId(), role: 'assistant', text }]);
+      };
+
       // The confirmation gate: show the card and pause until the user (or a superseding run) decides.
       const onConfirm = (req: ConfirmRequest) =>
         new Promise<ConfirmDecision>((resolve) => {
@@ -118,7 +140,7 @@ export function useAssistant() {
 
       const controller = new AbortController();
       abortRef.current = controller;
-      const res = await runAssistant({ question: text, history, apiKey: key, model, signal: controller.signal, onEvent, onConfirm });
+      const res = await runAssistant({ question: text, history, apiKey: key, model, signal: controller.signal, onEvent, onConfirm, onMessage });
       if (myRun !== runSeq.current || controller.signal.aborted) {
         // Cancelled or superseded — drop the partial trace and append no bubble.
         if (myRun === runSeq.current) setTrace([]);

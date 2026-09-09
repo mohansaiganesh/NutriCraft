@@ -36,7 +36,7 @@ Rules:
 - Be concise, friendly and specific. Lead with the answer, round numbers sensibly, and add at most a short bit of context. If there is no data for the period, say so plainly.
 - Format replies as short plain prose. You may use **bold** for key numbers and simple "- " bullet lists when listing several items — keep formatting minimal. Do not use tables, headings, code blocks, or links.
 - You can log foods and add saved meals to a day using the write tools (log_food, update_log_entry, remove_log_entry, apply_meal_to_day). To log a specific food you must first find it with search_foods and use its id; to edit or remove an entry, first find it with list_day_logs and use its logId.
-- EVERY write requires the user to confirm a card before it happens. Never say something is done, logged, changed, or removed until the tool result confirms it. If a write comes back rejected, acknowledge that nothing was changed and offer to adjust it — do not silently retry.
+- The app shows the user a confirmation CARD automatically for every write — so NEVER ask the user to confirm in prose or say things like "please confirm" or "let me know if you'd like to proceed". Before a write, briefly state in ONE short sentence what you are about to log (e.g. "I'll add 45 g of dates to your breakfast."). Never claim something is done, logged, changed, or removed until the tool result confirms it. AFTER the tool result confirms the write, reply with a brief PAST-TENSE confirmation of what was logged (e.g. "Added 45 g of dates to your breakfast."). If a write comes back rejected, acknowledge that nothing was changed and offer to adjust it — do not silently retry.
 - You cannot create or edit foods, create or rename meals or their items, or change targets/settings. If asked, briefly say so and point the user to the relevant screen (Foods, Meals, or Preferences).`;
 }
 
@@ -96,6 +96,12 @@ export async function runAssistant(opts: {
    * 'reject'; a write NEVER runs without an 'approve'. Omit it and all writes are auto-rejected.
    */
   onConfirm?: (req: ConfirmRequest) => Promise<ConfirmDecision>;
+  /**
+   * Fires with any prose the model emits ALONGSIDE a write proposal, so the UI can show it as a
+   * bubble BEFORE the confirm card. This text is shown once here and never reused as the final
+   * answer, so the pre-write narration can't leak out after the user has already confirmed.
+   */
+  onMessage?: (text: string) => void;
 }): Promise<AssistantResult> {
   // A throwing observer must never break the never-throw loop; dev-log every step here.
   const emit = (s: TraceStep) => {
@@ -122,6 +128,7 @@ export async function runAssistant(opts: {
   let toolCallsUsed = 0; // cumulative tool executions this run
   let stalledRounds = 0; // consecutive rounds that requested only already-seen calls
   let lastText = ''; // best plain text the model has produced so far (shown if we exit early)
+  let didWrite = false; // a write actually executed this run — steers the terminal fallback
 
   /**
    * Exit the loop early. If the model has already produced usable text, return it as a successful
@@ -229,10 +236,19 @@ export async function runAssistant(opts: {
       .map((p) => ('text' in p ? p.text : ''))
       .join('')
       .trim();
-    if (roundText) lastText = roundText;
+    const hasWrite = calls.some((c) => isWriteTool(c.functionCall.name));
+    if (roundText) {
+      if (hasWrite) {
+        // Prose that precedes a write proposal — surface it as a bubble NOW, above the confirm
+        // card. It's already been shown, so it must never become the final answer / a partial.
+        opts.onMessage?.(roundText);
+      } else {
+        lastText = roundText;
+      }
+    }
 
     if (calls.length === 0) {
-      return { ok: true, text: roundText || lastText || "I couldn't find an answer to that." };
+      return { ok: true, text: roundText || lastText || (didWrite ? 'Done.' : "I couldn't find an answer to that.") };
     }
 
     // Stall detection: if EVERY call this round repeats one we already ran, the model is looping and
@@ -263,6 +279,18 @@ export async function runAssistant(opts: {
       const result = isWriteTool(name)
         ? await handleWrite(name, label, stepId, args)
         : await handleRead(name, label, stepId, args);
+
+      // A write that actually ran (approved, no validation/mutation error) — used only to keep the
+      // terminal fallback sensible if the model goes silent after logging.
+      if (
+        isWriteTool(name) &&
+        result != null &&
+        typeof result === 'object' &&
+        !('rejected' in result) &&
+        !('error' in result)
+      ) {
+        didWrite = true;
+      }
 
       responseParts.push({
         functionResponse: {

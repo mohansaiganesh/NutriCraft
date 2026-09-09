@@ -1,6 +1,7 @@
 import '@/global.css';
 import { ActivityIndicator, Text, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -99,8 +100,11 @@ export default function RootLayout() {
 
   return (
     <GestureHandlerRootView style={{ flex: 1 }}>
-      <SafeAreaProvider>
-        <StatusBar style="dark" />
+      {/* Root-level keyboard tracking so the assistant's Modal (a separate native window on Android)
+          can lift its composer above the keyboard on any device. One provider covers the whole app. */}
+      <KeyboardProvider>
+        <SafeAreaProvider>
+          <StatusBar style="dark" />
         {error ? (
           <Center>
             <Text className="text-over font-body-b">Database error</Text>
@@ -114,7 +118,8 @@ export default function RootLayout() {
             <SessionGate />
           </SessionProvider>
         )}
-      </SafeAreaProvider>
+        </SafeAreaProvider>
+      </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }

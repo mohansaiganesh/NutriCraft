@@ -6,15 +6,14 @@ import {
   ActivityIndicator,
   Alert,
   Image,
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
   ScrollView,
   Text,
   TextInput,
   View,
 } from 'react-native';
+import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { router } from 'expo-router';
@@ -104,15 +103,22 @@ export function AssistantOverlay() {
       </Pressable>
 
       <Modal visible={open} transparent animationType="slide" onRequestClose={() => setOpen(false)}>
-        <View className="flex-1 justify-end" style={{ backgroundColor: 'rgba(11,20,14,0.35)' }}>
+        {/* KeyboardAvoidingView from react-native-keyboard-controller reads the real keyboard frame
+            natively (unlike RN's, which is a no-op on Android and can't see inside a Modal window).
+            It fills the Modal from the top, so its parent-relative offset is 0; behavior="height"
+            shrinks it by the keyboard height and the justify-end sheet rides up above the keyboard —
+            no per-device math. */}
+        <KeyboardAvoidingView
+          behavior="height"
+          style={{ flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(11,20,14,0.35)' }}
+        >
           {/* Tap the dim backdrop to dismiss. */}
           <Pressable style={{ position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 }} onPress={() => setOpen(false)} />
 
-          <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-            <View
-              className="bg-paper rounded-t-3xl border-t border-hair overflow-hidden"
-              style={{ height: '82%', paddingBottom: insets.bottom }}
-            >
+          <View
+            className="bg-paper rounded-t-3xl border-t border-hair overflow-hidden"
+            style={{ height: '82%', paddingBottom: insets.bottom }}
+          >
               {/* Header */}
               <View className="flex-row items-center px-5 pt-4 pb-3 border-b border-hair">
                 <View className="w-[50px] h-[50px] rounded-full overflow-hidden mr-3">
@@ -249,9 +255,8 @@ export function AssistantOverlay() {
                   </View>
                 </>
               )}
-            </View>
-          </KeyboardAvoidingView>
-        </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </>
   );

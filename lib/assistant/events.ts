@@ -50,6 +50,42 @@ export type TraceStep = ModelStep | RetryStep | ToolStep;
 
 export type AssistantErrorKind = GeminiErrorKind | 'iteration_limit';
 
+// ------------------------------------------------------------------ adaptive loop helpers
+
+/**
+ * Deterministic key for a tool call so the agent loop can spot when the model repeats itself
+ * (same tool, same args) regardless of the order the arg keys arrive in. Used to detect a stalled
+ * run and to bound cumulative work — see `runAssistant` in `agent.ts`.
+ */
+export function callSignature(name: string, args: Record<string, unknown> | undefined): string {
+  const a = args ?? {};
+  const body = Object.keys(a)
+    .sort()
+    .map((k) => `${k}=${JSON.stringify(a[k])}`)
+    .join('&');
+  return `${name}(${body})`;
+}
+
+/** Why the agent loop stopped before the model returned a plain-text answer on its own. */
+export type StopReasonKind = 'stalled' | 'tool_budget' | 'round_limit';
+
+/**
+ * Carried on a SUCCESSFUL result when the loop exited early but the model had already produced usable
+ * text — the answer is shown with this note so the user knows it may be incomplete.
+ */
+export interface StopReason {
+  kind: StopReasonKind;
+  message: string; // friendly, user-facing note shown under the partial answer
+  detail: string; // technical text (which limit was hit) for the expandable section
+}
+
+/** Friendly + technical copy for each early-stop reason (mirrors `describeError`). */
+export function describeStop(kind: StopReasonKind, detail: string): StopReason {
+  const message =
+    'I stopped early — this needed too many steps, so the answer above may be incomplete. Try asking something more specific.';
+  return { kind, message, detail };
+}
+
 // ------------------------------------------------------------------ usage totals
 
 /** Rolled-up LLM usage across a trace: how many Gemini calls were sent and their token totals. */

@@ -24,7 +24,7 @@ import { useAssistant } from '@/lib/assistant/useAssistant';
 import type { Message } from '@/lib/assistant/useAssistant';
 import { AVAILABLE_MODELS } from '@/lib/assistant/gemini';
 import { errorTitle, previewJson, traceUsage } from '@/lib/assistant/events';
-import type { TraceStep } from '@/lib/assistant/events';
+import type { StopReason, TraceStep } from '@/lib/assistant/events';
 import { parseMarkdown } from '@/lib/assistant/markdown';
 import type { MdBlock, MdSpan } from '@/lib/assistant/markdown';
 
@@ -290,7 +290,23 @@ function Bubble({ message }: { message: Message }) {
   return (
     <View className="self-start max-w-[88%] rounded-3xl rounded-bl-lg px-4 py-[10px] border bg-card border-hair">
       <MarkdownText blocks={parseMarkdown(message.text)} />
+      {message.stoppedEarly ? <StoppedEarlyNotice reason={message.stoppedEarly} /> : null}
       {hasTrace ? <StepsDisclosure steps={message.steps!} /> : null}
+    </View>
+  );
+}
+
+/** Subtle note under an answer the loop cut short: the partial answer stands, with a "may be incomplete" caveat. */
+function StoppedEarlyNotice({ reason }: { reason: StopReason }) {
+  const [showDetail, setShowDetail] = useState(false);
+  return (
+    <View className="mt-2 rounded-lg bg-[#FBF3E2] border border-[#F0DEB4] px-2.5 py-2">
+      <Text className="font-body-md text-[12px] leading-4 text-[#8A6D1F]">{reason.message}</Text>
+      <Pressable onPress={() => setShowDetail((v) => !v)} className="mt-1 flex-row items-center gap-1.5 active:opacity-70">
+        {showDetail ? <IconChevronDown size={12} color="#A98A2E" /> : <IconChevronRight size={12} color="#A98A2E" />}
+        <Text className="font-body-sb text-[11px] text-[#A98A2E]">Why</Text>
+      </Pressable>
+      {showDetail ? <Text className="mt-1 font-body-md text-[11px] leading-4 text-[#8A6D1F]">{reason.detail}</Text> : null}
     </View>
   );
 }

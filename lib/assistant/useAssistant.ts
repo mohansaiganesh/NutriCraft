@@ -11,7 +11,7 @@ import { getModel, setModel } from './modelStore';
 import { DEFAULT_MODEL } from './gemini';
 import { runAssistant } from './agent';
 import type { ChatTurn } from './agent';
-import type { AssistantErrorKind, TraceStep } from './events';
+import type { AssistantErrorKind, StopReason, TraceStep } from './events';
 
 export interface Message {
   id: string;
@@ -22,6 +22,8 @@ export interface Message {
   /** Structured error info for the titled error card (only on error bubbles). */
   errorKind?: AssistantErrorKind;
   errorDetail?: string;
+  /** Set on a SUCCESSFUL answer that the loop cut short — shown as a note under the reply. */
+  stoppedEarly?: StopReason;
   /** The activity trace this answer/error was produced by, kept for the post-hoc disclosure. */
   steps?: TraceStep[];
 }
@@ -107,7 +109,7 @@ export function useAssistant() {
       setMessages((prev) => [
         ...prev,
         res.ok
-          ? { id: newId(), role: 'assistant', text: res.text, steps }
+          ? { id: newId(), role: 'assistant', text: res.text, stoppedEarly: res.stoppedEarly, steps }
           : {
               id: newId(),
               role: 'assistant',

@@ -1,5 +1,7 @@
 import {
+  callSignature,
   describeError,
+  describeStop,
   errorTitle,
   previewJson,
   toolErrorMessage,
@@ -106,6 +108,36 @@ describe('describeError', () => {
     const r = describeError('iteration_limit', 'Stopped after 6 tool rounds.');
     expect(r.message).toMatch(/too many steps/i);
     expect(r.detail).toBe('Stopped after 6 tool rounds.');
+  });
+});
+
+describe('callSignature', () => {
+  it('is independent of arg key order', () => {
+    const a = callSignature('get_range_totals', { startDate: '2026-09-03', endDate: '2026-09-09' });
+    const b = callSignature('get_range_totals', { endDate: '2026-09-09', startDate: '2026-09-03' });
+    expect(a).toBe(b);
+  });
+
+  it('distinguishes different args and different tools', () => {
+    expect(callSignature('get_day_totals', { date: '2026-09-08' })).not.toBe(
+      callSignature('get_day_totals', { date: '2026-09-09' })
+    );
+    expect(callSignature('list_meals', {})).not.toBe(callSignature('list_day_logs', {}));
+  });
+
+  it('treats missing args as an empty object', () => {
+    expect(callSignature('get_today', undefined)).toBe('get_today()');
+  });
+});
+
+describe('describeStop', () => {
+  it('gives a friendly, incompleteness-aware message and keeps the raw detail per kind', () => {
+    for (const kind of ['stalled', 'tool_budget', 'round_limit'] as const) {
+      const r = describeStop(kind, `hit ${kind}`);
+      expect(r.kind).toBe(kind);
+      expect(r.message).toMatch(/incomplete|too many steps/i);
+      expect(r.detail).toBe(`hit ${kind}`);
+    }
   });
 
   it('surfaces the network message directly (already friendly)', () => {

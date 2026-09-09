@@ -8,10 +8,14 @@ import type { GeminiContent, GeminiPart } from './gemini';
 import { runTool } from './tools';
 import { newId } from '@/lib/id';
 import { todayISO } from '@/lib/format';
-import { describeError, toolErrorMessage, toolLabel, toolResultOk } from './events';
-import type { AssistantErrorKind, RetryStep, TraceStep } from './events';
+import { callSignature, describeError, describeStop, toolErrorMessage, toolLabel, toolResultOk } from './events';
+import type { AssistantErrorKind, RetryStep, StopReason, StopReasonKind, TraceStep } from './events';
 
-const MAX_TOOL_ITERATIONS = 6;
+// The loop adapts to observed progress rather than a single flat cap. These are safety BOUNDS, not
+// the normal stop — most questions finish in 1–3 rounds when the model returns plain text.
+const MAX_ROUNDS = 12; // absolute ceiling on Gemini round-trips (was a flat 6)
+const MAX_TOOL_CALLS = 16; // cumulative tool executions across the whole run (rounds can batch calls)
+const MAX_STALLED_ROUNDS = 1; // consecutive rounds with NO new tool call before we bail
 
 /** The system prompt, stamped with the real current date so the model never guesses the year. */
 function buildSystemPrompt(): string {
@@ -45,7 +49,9 @@ export interface AssistantError {
   iteration: number; // 0-based loop index the failure happened on
 }
 
-export type AssistantResult = { ok: true; text: string } | { ok: false; error: AssistantError };
+export type AssistantResult =
+  | { ok: true; text: string; stoppedEarly?: StopReason } // stoppedEarly set on an early exit that still had partial text
+  | { ok: false; error: AssistantError };
 
 const hasFunctionCall = (
   p: GeminiPart
@@ -96,7 +102,24 @@ export async function runAssistant(opts: {
   // Built once per run — the date is stable across the loop's iterations.
   const systemPrompt = buildSystemPrompt();
 
-  for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+  // Adaptive-budget state, tracked across rounds.
+  const seen = new Set<string>(); // signatures of tool calls already executed (repeat = no progress)
+  let toolCallsUsed = 0; // cumulative tool executions this run
+  let stalledRounds = 0; // consecutive rounds that requested only already-seen calls
+  let lastText = ''; // best plain text the model has produced so far (shown if we exit early)
+
+  /**
+   * Exit the loop early. If the model has already produced usable text, return it as a successful
+   * answer tagged with a "stopped early" note; otherwise fall back to the error card (today's
+   * behavior when there's nothing usable to show).
+   */
+  const finishEarly = (kind: StopReasonKind, detail: string, iteration: number): AssistantResult => {
+    if (__DEV__) console.warn('[assistant] stopped early', { kind, detail, iteration });
+    if (lastText) return { ok: true, text: lastText, stoppedEarly: describeStop(kind, detail) };
+    return fail('iteration_limit', detail, iteration);
+  };
+
+  for (let i = 0; i < MAX_ROUNDS; i++) {
     const modelStepId = newId();
     emit({ kind: 'model', id: modelStepId, iteration: i, status: 'running' });
 
@@ -130,12 +153,30 @@ export async function runAssistant(opts: {
     // Record the model's turn (text and/or the function calls it wants) in the running history.
     contents.push({ role: 'model', parts: res.parts });
 
+    // Keep the best plain text seen so far — an early exit can still show a partial answer.
+    const roundText = res.parts
+      .map((p) => ('text' in p ? p.text : ''))
+      .join('')
+      .trim();
+    if (roundText) lastText = roundText;
+
     if (calls.length === 0) {
-      const text = res.parts
-        .map((p) => ('text' in p ? p.text : ''))
-        .join('')
-        .trim();
-      return { ok: true, text: text || "I couldn't find an answer to that." };
+      return { ok: true, text: roundText || lastText || "I couldn't find an answer to that." };
+    }
+
+    // Stall detection: if EVERY call this round repeats one we already ran, the model is looping and
+    // making no new progress. Tolerate MAX_STALLED_ROUNDS such rounds, then bail.
+    const signatures = calls.map((c) => callSignature(c.functionCall.name, c.functionCall.args));
+    const hasNewWork = signatures.some((s) => !seen.has(s));
+    if (hasNewWork) {
+      stalledRounds = 0;
+    } else if (++stalledRounds > MAX_STALLED_ROUNDS) {
+      return finishEarly('stalled', `Model repeated the same tool calls without new progress (round ${i + 1}).`, i);
+    }
+
+    // Cumulative work budget: stop before spending more tool calls than the run is allowed.
+    if (toolCallsUsed >= MAX_TOOL_CALLS) {
+      return finishEarly('tool_budget', `Reached the ${MAX_TOOL_CALLS}-tool-call budget for one question.`, i);
     }
 
     // Execute each requested tool locally and return every result in one turn.
@@ -175,8 +216,11 @@ export async function runAssistant(opts: {
         },
       });
     }
+    // Record what we just executed so repeats register as no-progress, and spend the work budget.
+    for (const s of signatures) seen.add(s);
+    toolCallsUsed += calls.length;
     contents.push({ role: 'user', parts: responseParts });
   }
 
-  return fail('iteration_limit', `Stopped after ${MAX_TOOL_ITERATIONS} tool rounds.`, MAX_TOOL_ITERATIONS);
+  return finishEarly('round_limit', `Stopped after the ${MAX_ROUNDS}-round ceiling.`, MAX_ROUNDS);
 }

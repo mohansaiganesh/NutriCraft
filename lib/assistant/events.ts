@@ -46,7 +46,23 @@ export interface ToolStep {
   error?: string; // the { error } string when a tool fails
 }
 
-export type TraceStep = ModelStep | RetryStep | ToolStep;
+/**
+ * A write the model wants to perform, paused until the user taps Confirm/Cancel in the chat.
+ * Emitted `awaiting` when proposed, re-emitted (same id) as `approved`/`rejected` once the user
+ * decides — so the activity trace stays honest about what was actually written.
+ */
+export interface ConfirmStep {
+  kind: 'confirm';
+  id: string;
+  tool: string; // raw write-tool name, e.g. 'log_food'
+  label: string; // friendly text from toolLabel()
+  summary: string; // human-readable operation shown on the card and the trace row
+  destructive?: boolean; // a delete — rendered with the red treatment
+  status: 'awaiting' | 'approved' | 'rejected';
+  result?: unknown; // set once the mutation runs after approval
+}
+
+export type TraceStep = ModelStep | RetryStep | ToolStep | ConfirmStep;
 
 export type AssistantErrorKind = GeminiErrorKind | 'iteration_limit';
 
@@ -123,6 +139,11 @@ const TOOL_LABELS: Record<string, string> = {
   get_meal_breakdown: 'Breaking down a meal',
   list_meals_with_totals: 'Totalling your meals',
   search_foods: 'Searching foods',
+  // Write tools (each runs only after the user confirms the card).
+  log_food: 'Logging a food',
+  update_log_entry: 'Editing a log entry',
+  remove_log_entry: 'Removing a log entry',
+  apply_meal_to_day: 'Adding a meal to a day',
 };
 
 export const toolLabel = (name: string): string => TOOL_LABELS[name] ?? name;

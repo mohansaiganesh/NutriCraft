@@ -20,6 +20,12 @@ describe('toolLabel', () => {
   it('falls back to the raw name for an unknown tool', () => {
     expect(toolLabel('mystery_tool')).toBe('mystery_tool');
   });
+
+  it('labels the write tools', () => {
+    expect(toolLabel('log_food')).toBe('Logging a food');
+    expect(toolLabel('remove_log_entry')).toBe('Removing a log entry');
+    expect(toolLabel('apply_meal_to_day')).toBe('Adding a meal to a day');
+  });
 });
 
 describe('toolResultOk / toolErrorMessage', () => {
@@ -87,6 +93,14 @@ describe('traceUsage', () => {
 
   it('is zero for an empty trace', () => {
     expect(traceUsage([])).toEqual({ calls: 0, inputTokens: 0, outputTokens: 0 });
+  });
+
+  it('ignores confirm steps (they are not model calls)', () => {
+    const steps: TraceStep[] = [
+      { kind: 'model', id: 'm1', iteration: 0, status: 'done', inputTokens: 100, outputTokens: 20 },
+      { kind: 'confirm', id: 'c1', tool: 'log_food', label: 'Logging a food', summary: 'Log 150 g …', status: 'approved' },
+    ];
+    expect(traceUsage(steps)).toEqual({ calls: 1, inputTokens: 100, outputTokens: 20 });
   });
 });
 

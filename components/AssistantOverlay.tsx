@@ -22,6 +22,7 @@ import { IconCheck, IconChevronDown, IconChevronRight, IconSparkles, IconTrash, 
 import { settingsQuery } from '@/db/queries';
 import { useAssistant } from '@/lib/assistant/useAssistant';
 import type { Message } from '@/lib/assistant/useAssistant';
+import type { ConfirmRequest } from '@/lib/assistant/agent';
 import { AVAILABLE_MODELS } from '@/lib/assistant/gemini';
 import { errorTitle, previewJson, traceUsage } from '@/lib/assistant/events';
 import type { StopReason, TraceStep } from '@/lib/assistant/events';
@@ -53,7 +54,8 @@ export function AssistantOverlay() {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
-  const { messages, sending, trace, hasKey, model, chooseModel, send, stop, clear, refreshKey } = useAssistant();
+  const { messages, sending, trace, hasKey, model, chooseModel, send, stop, clear, refreshKey, pendingWrite, confirmWrite, cancelWrite } =
+    useAssistant();
   const scrollRef = useRef<ScrollView>(null);
   const activeModelLabel = AVAILABLE_MODELS.find((m) => m.id === model)?.label ?? model;
 
@@ -153,6 +155,9 @@ export function AssistantOverlay() {
                       messages.map((m) => <Bubble key={m.id} message={m} />)
                     )}
                     {sending ? <ActivityTrace steps={trace} /> : null}
+                    {pendingWrite ? (
+                      <ConfirmCard req={pendingWrite} onConfirm={confirmWrite} onCancel={cancelWrite} />
+                    ) : null}
                   </ScrollView>
 
                   {/* Composer — with the model picker sitting just above the input. */}
@@ -442,6 +447,55 @@ function MarkdownText({ blocks }: { blocks: MdBlock[] }) {
   );
 }
 
+/** A write Nico proposes, paused for the user's decision. Nothing is persisted until Confirm is tapped;
+ * a destructive action (a removal) gets the red treatment so it reads differently from a routine log. */
+function ConfirmCard({
+  req,
+  onConfirm,
+  onCancel,
+}: {
+  req: ConfirmRequest;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const destructive = !!req.destructive;
+  return (
+    <View
+      className={`self-start w-[88%] rounded-3xl rounded-bl-lg px-4 py-3 border ${
+        destructive ? 'bg-[#FDECEC] border-[#F6CDCD]' : 'bg-[#F1FAF2] border-[#CDE9D3]'
+      }`}
+    >
+      <View className="flex-row items-center gap-2 mb-1.5">
+        <View
+          className={`w-[22px] h-[22px] rounded-full items-center justify-center ${
+            destructive ? 'bg-[#F6CDCD]' : 'bg-[#D8F0DD]'
+          }`}
+        >
+          {destructive ? <IconTrash size={13} color="#E03131" /> : <IconSparkles size={13} color="#2F9E44" />}
+        </View>
+        <Text className={`font-body-b text-[13px] ${destructive ? 'text-over' : 'text-brand'}`}>
+          {destructive ? 'Confirm removal' : 'Confirm this change'}
+        </Text>
+      </View>
+      <Text className="font-body text-[14px] leading-5 text-ink mb-3">{req.summary}</Text>
+      <View className="flex-row justify-end gap-2">
+        <Pressable
+          onPress={onCancel}
+          className="rounded-full px-4 py-[9px] border border-hair bg-card active:opacity-80"
+        >
+          <Text className="font-body-sb text-[13px] text-ink2">Cancel</Text>
+        </Pressable>
+        <Pressable
+          onPress={onConfirm}
+          className={`rounded-full px-4 py-[9px] active:opacity-90 ${destructive ? 'bg-[#E03131]' : 'bg-brand'}`}
+        >
+          <Text className="font-body-b text-[13px] text-white">{destructive ? 'Remove' : 'Confirm'}</Text>
+        </Pressable>
+      </View>
+    </View>
+  );
+}
+
 /** Live activity while the assistant works — the step list (each Gemini call + tool call is a row)
  * plus a running token-usage summary. Replaces the old static "Thinking…" bubble. */
 function ActivityTrace({ steps }: { steps: TraceStep[] }) {
@@ -523,6 +577,33 @@ function StepRow({ step }: { step: TraceStep }) {
             ? `Server hiccup — retried (attempt ${step.attempt})`
             : `Server hiccup — retrying (attempt ${step.attempt})…`}
         </Text>
+      </View>
+    );
+  }
+
+  if (step.kind === 'confirm') {
+    const awaiting = step.status === 'awaiting';
+    const approved = step.status === 'approved';
+    return (
+      <View className="py-1">
+        <View className="flex-row items-center gap-2">
+          <View className="w-[18px] items-center">
+            {awaiting ? (
+              <ActivityIndicator size="small" color="#2F9E44" />
+            ) : approved ? (
+              <IconCheck size={16} color="#2F9E44" />
+            ) : (
+              <View className="w-[18px] h-[18px] rounded-full bg-[#EEF1EE] items-center justify-center">
+                <IconX size={11} color="#8B9A8D" />
+              </View>
+            )}
+          </View>
+          <Text className="flex-1 font-body-md text-[13px] text-ink2">
+            {step.label}
+            {awaiting ? ' — awaiting confirmation…' : approved ? '' : ' — cancelled'}
+          </Text>
+        </View>
+        <Text className="ml-[26px] mt-0.5 font-body text-[12px] leading-4 text-ink3">{step.summary}</Text>
       </View>
     );
   }

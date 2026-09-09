@@ -9,7 +9,11 @@
  * returns a DISCRIMINATED result so the UI can distinguish a bad key from a rate-limit from
  * an offline device (instead of silently swallowing everything).
  */
-import { FUNCTION_DECLARATIONS } from './tools';
+import { FUNCTION_DECLARATIONS, WRITE_FUNCTION_DECLARATIONS } from './tools';
+
+// The model sees the read tools and the write tools together; writes still can't run without the
+// user confirming the card the agent loop pauses on (see agent.ts).
+const ALL_FUNCTION_DECLARATIONS = [...FUNCTION_DECLARATIONS, ...WRITE_FUNCTION_DECLARATIONS];
 
 /** Models the user can pick in Settings — all served on the Generative Language API with
  * function calling + system instructions. Gemini 3.6 Flash is the reliable, current default
@@ -100,7 +104,7 @@ export async function callGemini(opts: {
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: opts.systemInstruction }] },
           contents: opts.contents,
-          tools: [{ functionDeclarations: FUNCTION_DECLARATIONS }],
+          tools: [{ functionDeclarations: ALL_FUNCTION_DECLARATIONS }],
         }),
         signal: controller.signal,
       });

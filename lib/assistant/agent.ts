@@ -5,7 +5,8 @@
  */
 import { callGemini } from './gemini';
 import type { GeminiContent, GeminiPart } from './gemini';
-import { runTool } from './tools';
+import { describeWrite, executeWrite, isWriteTool, runTool } from './tools';
+import type { PendingWrite } from './tools';
 import { newId } from '@/lib/id';
 import { todayISO } from '@/lib/format';
 import { callSignature, describeError, describeStop, toolErrorMessage, toolLabel, toolResultOk } from './events';
@@ -34,7 +35,9 @@ Rules:
 - Costs are in the user's currency; tool results include a "currency" symbol — use it when showing money.
 - Be concise, friendly and specific. Lead with the answer, round numbers sensibly, and add at most a short bit of context. If there is no data for the period, say so plainly.
 - Format replies as short plain prose. You may use **bold** for key numbers and simple "- " bullet lists when listing several items — keep formatting minimal. Do not use tables, headings, code blocks, or links.
-- You can only READ data. You cannot log foods, create meals, or change targets/settings. If asked to do any of those, briefly explain that and point the user to the relevant screen (Foods, Meals, or Preferences).`;
+- You can log foods and add saved meals to a day using the write tools (log_food, update_log_entry, remove_log_entry, apply_meal_to_day). To log a specific food you must first find it with search_foods and use its id; to edit or remove an entry, first find it with list_day_logs and use its logId.
+- EVERY write requires the user to confirm a card before it happens. Never say something is done, logged, changed, or removed until the tool result confirms it. If a write comes back rejected, acknowledge that nothing was changed and offer to adjust it — do not silently retry.
+- You cannot create or edit foods, create or rename meals or their items, or change targets/settings. If asked, briefly say so and point the user to the relevant screen (Foods, Meals, or Preferences).`;
 }
 
 export interface ChatTurn {
@@ -52,6 +55,13 @@ export interface AssistantError {
 export type AssistantResult =
   | { ok: true; text: string; stoppedEarly?: StopReason } // stoppedEarly set on an early exit that still had partial text
   | { ok: false; error: AssistantError };
+
+/** A proposed write handed to `onConfirm`; the returned promise resolves once the user decides. */
+export interface ConfirmRequest extends PendingWrite {
+  id: string; // the confirm trace step id — stable across the pause so the UI can pair the decision
+  label: string; // friendly label from toolLabel()
+}
+export type ConfirmDecision = 'approve' | 'reject';
 
 const hasFunctionCall = (
   p: GeminiPart
@@ -81,6 +91,11 @@ export async function runAssistant(opts: {
   signal?: AbortSignal;
   /** Observes the run as it happens — one snapshot per step, re-emitted (same id) as it transitions. */
   onEvent?: (step: TraceStep) => void;
+  /**
+   * Gate for every write the model proposes. The loop pauses here until it resolves 'approve' or
+   * 'reject'; a write NEVER runs without an 'approve'. Omit it and all writes are auto-rejected.
+   */
+  onConfirm?: (req: ConfirmRequest) => Promise<ConfirmDecision>;
 }): Promise<AssistantResult> {
   // A throwing observer must never break the never-throw loop; dev-log every step here.
   const emit = (s: TraceStep) => {
@@ -117,6 +132,62 @@ export async function runAssistant(opts: {
     if (__DEV__) console.warn('[assistant] stopped early', { kind, detail, iteration });
     if (lastText) return { ok: true, text: lastText, stoppedEarly: describeStop(kind, detail) };
     return fail('iteration_limit', detail, iteration);
+  };
+
+  /** Run a read tool immediately, emitting its running→ok/error trace row. */
+  const handleRead = async (name: string, label: string, stepId: string, args: Record<string, unknown>) => {
+    emit({ kind: 'tool', id: stepId, name, label, args, status: 'running' });
+    const result = await runTool(name, args);
+    const ok = toolResultOk(result);
+    emit({
+      kind: 'tool',
+      id: stepId,
+      name,
+      label,
+      args,
+      status: ok ? 'ok' : 'error',
+      result,
+      ok,
+      error: ok ? undefined : toolErrorMessage(result),
+    });
+    return result;
+  };
+
+  /**
+   * A write: validate+resolve, then PAUSE on the confirmation gate. The mutation runs only after an
+   * 'approve'. A validation failure returns an { error } (no prompt); a missing confirmer, an abort,
+   * or a decline all resolve to a rejected write that touches nothing.
+   */
+  const handleWrite = async (name: string, label: string, stepId: string, args: Record<string, unknown>) => {
+    const described = await describeWrite(name, args);
+    if (!toolResultOk(described)) {
+      // Bad/hallucinated args — surface as a tool error so the model can correct, no card shown.
+      emit({ kind: 'tool', id: stepId, name, label, args, status: 'error', result: described, ok: false, error: toolErrorMessage(described) });
+      return described;
+    }
+    const pending = described as PendingWrite;
+    const row = { tool: name, label, summary: pending.summary, destructive: pending.destructive };
+
+    if (!opts.onConfirm || opts.signal?.aborted) {
+      emit({ kind: 'confirm', id: stepId, ...row, status: 'rejected' });
+      return { rejected: true, reason: 'The user did not approve this action.' };
+    }
+
+    emit({ kind: 'confirm', id: stepId, ...row, status: 'awaiting' });
+    let decision: ConfirmDecision = 'reject';
+    try {
+      decision = await opts.onConfirm({ id: stepId, label, ...pending });
+    } catch {
+      decision = 'reject';
+    }
+    if (decision !== 'approve' || opts.signal?.aborted) {
+      emit({ kind: 'confirm', id: stepId, ...row, status: 'rejected' });
+      return { rejected: true, reason: 'The user declined this action.' };
+    }
+
+    const result = await executeWrite(name, pending.payload);
+    emit({ kind: 'confirm', id: stepId, ...row, status: 'approved', result });
+    return result;
   };
 
   for (let i = 0; i < MAX_ROUNDS; i++) {
@@ -179,38 +250,23 @@ export async function runAssistant(opts: {
       return finishEarly('tool_budget', `Reached the ${MAX_TOOL_CALLS}-tool-call budget for one question.`, i);
     }
 
-    // Execute each requested tool locally and return every result in one turn.
+    // Execute each requested tool locally and return every result in one turn. Read tools run
+    // immediately; write tools pause on the confirmation gate and run only if the user approves.
     const responseParts: GeminiPart[] = [];
     for (const c of calls) {
       // Echo the model's call id when present so parallel calls stay paired in both the trace + Gemini.
       const stepId = c.functionCall.id ?? newId();
-      const label = toolLabel(c.functionCall.name);
-      emit({
-        kind: 'tool',
-        id: stepId,
-        name: c.functionCall.name,
-        label,
-        args: c.functionCall.args,
-        status: 'running',
-      });
+      const name = c.functionCall.name;
+      const label = toolLabel(name);
+      const args = c.functionCall.args;
 
-      const result = await runTool(c.functionCall.name, c.functionCall.args);
-      const ok = toolResultOk(result);
-      emit({
-        kind: 'tool',
-        id: stepId,
-        name: c.functionCall.name,
-        label,
-        args: c.functionCall.args,
-        status: ok ? 'ok' : 'error',
-        result,
-        ok,
-        error: ok ? undefined : toolErrorMessage(result),
-      });
+      const result = isWriteTool(name)
+        ? await handleWrite(name, label, stepId, args)
+        : await handleRead(name, label, stepId, args);
 
       responseParts.push({
         functionResponse: {
-          name: c.functionCall.name,
+          name,
           response: wrapResponse(result),
           ...(c.functionCall.id ? { id: c.functionCall.id } : {}),
         },

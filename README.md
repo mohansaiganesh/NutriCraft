@@ -159,3 +159,9 @@ Only the `app/` router tree is bound by these rules — everything outside it
 Adaptive TDEE engine, AI photo-label + meal-photo estimation, voice logging, and barcode
 scanning. (Postgres/Supabase cloud sync and online food search — Open Food Facts + USDA
 FoodData Central — are implemented; see the Architecture section and `supabase/README.md`.)
+
+**Assistant writes.** Nico can now log foods and apply saved meals to a day, each behind a
+confirmation card. Still deferred: editing meals via chat (create/rename meals, add/remove/adjust
+meal items), creating/editing/deleting foods, and changing targets/settings. Food edit/delete via
+chat additionally needs a shared-catalog ownership guard (`updateFood`/`softDeleteFood` in
+`db/queries.ts` scope only by `id`), plus batch confirmation (approving several writes at once).

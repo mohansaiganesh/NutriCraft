@@ -10,7 +10,7 @@ import { getApiKey, hasApiKey } from './keyStore';
 import { getModel, setModel } from './modelStore';
 import { DEFAULT_MODEL } from './gemini';
 import { runAssistant } from './agent';
-import type { ChatTurn } from './agent';
+import type { ChatTurn, ConfirmDecision, ConfirmRequest } from './agent';
 import type { AssistantErrorKind, StopReason, TraceStep } from './events';
 
 export interface Message {
@@ -35,8 +35,19 @@ export function useAssistant() {
   const [trace, setTrace] = useState<TraceStep[]>([]); // live activity for the in-flight question
   const [hasKey, setHasKey] = useState<boolean | null>(null); // null = not checked yet
   const [model, setModelState] = useState<string>(DEFAULT_MODEL);
+  const [pendingWrite, setPendingWrite] = useState<ConfirmRequest | null>(null); // a write awaiting Confirm/Cancel
   const abortRef = useRef<AbortController | null>(null);
+  const resolveConfirmRef = useRef<((d: ConfirmDecision) => void) | null>(null); // resolves the paused onConfirm
   const runSeq = useRef(0); // bumped per send / stop / clear so stale emits are ignored
+
+  // Settle any in-flight confirmation with a decision and clear the card. Used by the Confirm/Cancel
+  // buttons and, defensively, by stop/clear/unmount so a paused write can never dangle or auto-run.
+  const settleConfirm = useCallback((decision: ConfirmDecision) => {
+    const resolve = resolveConfirmRef.current;
+    resolveConfirmRef.current = null;
+    setPendingWrite(null);
+    resolve?.(decision);
+  }, []);
 
   const refreshKey = useCallback(async () => {
     setHasKey(userId ? await hasApiKey(userId) : false);
@@ -97,9 +108,17 @@ export function useAssistant() {
         setTrace([...steps]);
       };
 
+      // The confirmation gate: show the card and pause until the user (or a superseding run) decides.
+      const onConfirm = (req: ConfirmRequest) =>
+        new Promise<ConfirmDecision>((resolve) => {
+          if (myRun !== runSeq.current) return resolve('reject'); // superseded before we could prompt
+          resolveConfirmRef.current = resolve;
+          setPendingWrite(req);
+        });
+
       const controller = new AbortController();
       abortRef.current = controller;
-      const res = await runAssistant({ question: text, history, apiKey: key, model, signal: controller.signal, onEvent });
+      const res = await runAssistant({ question: text, history, apiKey: key, model, signal: controller.signal, onEvent, onConfirm });
       if (myRun !== runSeq.current || controller.signal.aborted) {
         // Cancelled or superseded — drop the partial trace and append no bubble.
         if (myRun === runSeq.current) setTrace([]);
@@ -127,23 +146,49 @@ export function useAssistant() {
     [messages, sending, userId, model]
   );
 
+  const confirmWrite = useCallback(() => settleConfirm('approve'), [settleConfirm]);
+  const cancelWrite = useCallback(() => settleConfirm('reject'), [settleConfirm]);
+
   const stop = useCallback(() => {
     runSeq.current++; // ignore any in-flight emit/result from the aborted run
+    settleConfirm('reject'); // a paused write is abandoned, not run
     abortRef.current?.abort();
     setTrace([]);
     setSending(false);
-  }, []);
+  }, [settleConfirm]);
 
   const clear = useCallback(() => {
     runSeq.current++;
+    settleConfirm('reject');
     abortRef.current?.abort();
     setMessages([]);
     setTrace([]);
     setSending(false);
-  }, []);
+  }, [settleConfirm]);
 
-  // Cancel any in-flight request if the component unmounts.
-  useEffect(() => () => abortRef.current?.abort(), []);
+  // Cancel any in-flight request (and reject a dangling confirmation) if the component unmounts.
+  useEffect(
+    () => () => {
+      resolveConfirmRef.current?.('reject');
+      resolveConfirmRef.current = null;
+      abortRef.current?.abort();
+    },
+    []
+  );
 
-  return { messages, sending, trace, hasKey, model, chooseModel, send, stop, clear, refreshKey };
+  return {
+    messages,
+    sending,
+    trace,
+    hasKey,
+    model,
+    chooseModel,
+    send,
+    stop,
+    clear,
+    refreshKey,
+    pendingWrite,
+    confirmWrite,
+    cancelWrite,
+  };
 }

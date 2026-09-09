@@ -225,6 +225,9 @@ export async function addLog(
   return id;
 }
 
+// Both scope the write to the current user (not id alone) so a caller acting on an externally
+// supplied id — the assistant's edit/remove tools — can never touch another account's log even if
+// the account switches between resolving the entry and running the mutation.
 export async function updateLog(
   id: string,
   patch: { grams?: number; mealType?: MealType }
@@ -232,14 +235,34 @@ export async function updateLog(
   await db
     .update(dailyLogs)
     .set({ ...patch, updatedAt: now() })
-    .where(eq(dailyLogs.id, id));
+    .where(and(eq(dailyLogs.id, id), eq(dailyLogs.userId, requireUserId())));
 }
 
 export async function removeLog(id: string): Promise<void> {
   await db
     .update(dailyLogs)
     .set({ deleted: true, updatedAt: now() })
-    .where(eq(dailyLogs.id, id));
+    .where(and(eq(dailyLogs.id, id), eq(dailyLogs.userId, requireUserId())));
+}
+
+/**
+ * One log entry (joined to its food), scoped to the current user — the ownership guard for the
+ * assistant's edit/remove write tools. `updateLog`/`removeLog` scope only by `id`, so callers that
+ * act on a caller-supplied id (the assistant) must resolve it through THIS first and refuse a miss.
+ */
+export async function getLogEntry(id: string) {
+  const rows = await db
+    .select({ log: dailyLogs, food: foodItems })
+    .from(dailyLogs)
+    .innerJoin(foodItems, eq(dailyLogs.foodItemId, foodItems.id))
+    .where(
+      and(
+        eq(dailyLogs.id, id),
+        eq(dailyLogs.deleted, false),
+        eq(dailyLogs.userId, requireUserId())
+      )
+    );
+  return rows[0] ?? null;
 }
 
 /** Expand a meal template into individual log entries for a given day/meal. */
@@ -251,7 +274,13 @@ export async function applyMealToDay(
   const items = await db
     .select()
     .from(mealItems)
-    .where(and(eq(mealItems.mealId, mealId), eq(mealItems.deleted, false)));
+    .where(
+      and(
+        eq(mealItems.mealId, mealId),
+        eq(mealItems.deleted, false),
+        eq(mealItems.userId, requireUserId())
+      )
+    );
   for (const it of items) {
     await addLog(loggedDate, mealType, it.foodItemId, it.grams);
   }

@@ -21,9 +21,10 @@ import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { router } from 'expo-router';
-import { IconCheck, IconChevronDown, IconChevronRight, IconSparkles, IconTrash, IconX } from './icons';
+import { IconCheck, IconChevronDown, IconChevronRight, IconMic, IconSparkles, IconTrash, IconX } from './icons';
 import { settingsQuery } from '@/db/queries';
 import { useAssistant } from '@/lib/assistant/useAssistant';
+import { useVoiceInput } from '@/lib/assistant/useVoiceInput';
 import type { Message } from '@/lib/assistant/useAssistant';
 import type { ConfirmRequest } from '@/lib/assistant/agent';
 import type { WriteEdit } from '@/lib/assistant/tools';
@@ -64,6 +65,9 @@ export function AssistantOverlay() {
   const [menuOpen, setMenuOpen] = useState(false);
   const { messages, sending, trace, hasKey, model, chooseModel, send, stop, clear, refreshKey, pendingWrite, confirmWrite, cancelWrite } =
     useAssistant();
+  // Dictation appends to the composer live and keeps listening until the user taps stop; the text
+  // stays put for the user to review, then send.
+  const voice = useVoiceInput({ onTranscript: setDraft });
   const scrollRef = useRef<ScrollView>(null);
   const activeModelLabel = AVAILABLE_MODELS.find((m) => m.id === model)?.label ?? model;
 
@@ -118,6 +122,7 @@ export function AssistantOverlay() {
   const submit = (text: string) => {
     const t = text.trim();
     if (!t) return;
+    if (voice.listening) voice.abort(); // discard any in-flight result so it can't refill the draft
     setDraft('');
     send(t);
   };
@@ -276,12 +281,25 @@ export function AssistantOverlay() {
                     <TextInput
                       value={draft}
                       onChangeText={setDraft}
-                      placeholder="Ask a question…"
+                      placeholder={voice.listening ? 'Listening…' : 'Ask a question…'}
                       placeholderTextColor="#9AA79B"
                       multiline
                       onSubmitEditing={() => submit(draft)}
                       className="flex-1 max-h-28 rounded-2xl border border-[#DCE5D4] bg-card px-[14px] py-[11px] text-[15px] font-body-md text-ink"
                     />
+                    {voice.supported && !sending ? (
+                      <Pressable
+                        onPress={() => (voice.listening ? voice.stop() : voice.start(draft))}
+                        accessibilityLabel={voice.listening ? 'Stop dictation' : 'Dictate your message'}
+                        className={`w-11 h-11 rounded-full items-center justify-center border ${
+                          voice.listening
+                            ? 'bg-brand border-brand active:opacity-90'
+                            : 'bg-[#EEF3EA] border-[#DCEAD4] active:opacity-80'
+                        }`}
+                      >
+                        <IconMic size={19} color={voice.listening ? '#fff' : '#3A4A3D'} />
+                      </Pressable>
+                    ) : null}
                     {sending ? (
                       <Pressable
                         onPress={stop}
@@ -299,6 +317,9 @@ export function AssistantOverlay() {
                       </Pressable>
                     )}
                     </View>
+                    {voice.error ? (
+                      <Text className="px-4 pb-2 -mt-1 font-body text-[12px] text-[#B4482F]">{voice.error}</Text>
+                    ) : null}
                   </View>
                 </>
               )}

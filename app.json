@@ -27,7 +27,15 @@
       "expo-router",
       "expo-sqlite",
       "expo-font",
-      "expo-secure-store"
+      "expo-secure-store",
+      [
+        "expo-speech-recognition",
+        {
+          "microphonePermission": "Allow NutriCraft to use the microphone so you can talk to Nico.",
+          "speechRecognitionPermission": "Allow NutriCraft to recognize your speech so you can dictate to Nico.",
+          "androidSpeechServicePackages": ["com.google.android.googlequicksearchbox"]
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true

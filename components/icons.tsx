@@ -231,6 +231,17 @@ export function IconX({ size, color, strokeWidth = 2.4 }: IconProps) {
   );
 }
 
+export function IconMic({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M12 2a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+      <Path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+      <Line x1="12" y1="18" x2="12" y2="22" />
+      <Line x1="8" y1="22" x2="16" y2="22" />
+    </Svg>
+  );
+}
+
 export function IconDownload({ size, color, strokeWidth = 2.1 }: IconProps) {
   return (
     <Svg {...base(size, color, strokeWidth)}>

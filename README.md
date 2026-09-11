@@ -17,8 +17,11 @@ First launch runs the DB migration; a new account opens to an empty catalog and 
 
 | command              | what it does                                             |
 | -------------------- | -------------------------------------------------------- |
-| `npm start`          | Expo dev server                                          |
-| `npm test`           | Jest — nutrition-math tests                              |
+| `npm start`          | Expo dev server (then `a` Android, `i` iOS, `w` web)     |
+| `npm run android`    | Build & run the native Android app                       |
+| `npm run ios`        | Build & run the native iOS app                           |
+| `npm run web`        | Expo dev server on web                                   |
+| `npm test`           | Jest — nutrition math, food search/match, sync, reports, and assistant tests |
 | `npm run typecheck`  | `tsc --noEmit`                                            |
 | `npm run db:generate`| Regenerate Drizzle migrations after editing `db/schema.ts` |
 
@@ -86,10 +89,17 @@ replace the placeholder package `com.anonymous.nutricraft`.
   The schema (`db/schema.ts`) is written once so it can target Postgres later for
   cloud sync — every table uses UUID keys, UTC timestamps, and `updated_at` +
   `deleted` soft-delete columns for future reconciliation.
-- **Navigation:** Expo Router (`app/`), file-based, with a bottom tab bar.
+- **Navigation:** Expo Router (`app/`), file-based, with a bottom tab bar
+  (Today / Foods / Meals / Reports / Settings) plus a stacked `app/account/` area.
 - **Styling:** NativeWind (Tailwind).
 - **Reactive data:** Drizzle `useLiveQuery` (SQLite change listener) — screens update
   automatically on writes.
+- **AI assistant (Nico):** an in-app assistant (Google Gemini) that can log foods and apply
+  saved meals to a day, each behind a confirmation card. It's mounted globally
+  (`components/AssistantOverlay.tsx`), supports voice dictation into its composer, and calls the
+  same `db/queries.ts` mutations screens use. Bring your own Gemini API key in Settings; see
+  `lib/assistant/`. Every run is recorded to the syncable `assistant_traces` table, inspectable
+  under the account area.
 - **Accounts & cloud sync (required):** the app runs behind an email/password login — the
   `AuthScreen` is the entry point, and signing out returns to it so a different user can
   sign in on the same device. Local SQLite stays the source of truth; `lib/sync.ts` runs a
@@ -101,8 +111,8 @@ replace the placeholder package `com.anonymous.nutricraft`.
 
 ### Multi-user data model
 
-Every syncable table carries a `user_id`. **Meals, meal items, daily logs, and settings are
-private** per account. **Foods** are either private (`user_id = you`, `is_custom = true`,
+Every syncable table carries a `user_id`. **Meals, meal items, daily logs, settings, and
+assistant traces are private** per account. **Foods** are either private (`user_id = you`, `is_custom = true`,
 editable) or **shared** (`user_id IS NULL`, `is_custom = false`) — an admin-curated global
 catalog everyone reads but only the service role writes (`supabase/seed-shared-catalog.sql`).
 `user_id` is nullable in the local SQLite schema (it holds shared rows, and a NULL private row
@@ -132,6 +142,9 @@ show, with a quiet "unavailable" note. OFF needs no key; USDA needs a free
 | Today dashboard          | `app/(tabs)/index.tsx`                                |
 | Food catalog + form      | `app/(tabs)/foods.tsx`, `app/food/[id].tsx`          |
 | Meal templates           | `app/(tabs)/meals.tsx`, `app/meal/[id].tsx`          |
+| Reports & charts         | `app/(tabs)/reports.tsx`, `lib/reports.ts`, `lib/reportHtml.ts`, `components/charts.tsx` |
+| AI assistant (Nico)      | `lib/assistant/`, `components/AssistantOverlay.tsx`  |
+| Account area             | `app/account/` (profile, security, data, traces)    |
 | Auth & cloud sync        | `lib/session.tsx`, `lib/sync.ts`, `supabase/`        |
 | Settings / targets       | `app/(tabs)/settings.tsx`                             |
 
@@ -156,12 +169,15 @@ Only the `app/` router tree is bound by these rules — everything outside it
 
 ## Deferred (schema is ready for these)
 
-Adaptive TDEE engine, AI photo-label + meal-photo estimation, voice logging, and barcode
-scanning. (Postgres/Supabase cloud sync and online food search — Open Food Facts + USDA
-FoodData Central — are implemented; see the Architecture section and `supabase/README.md`.)
+Adaptive TDEE engine, AI photo-label + meal-photo estimation, and barcode scanning.
+(Postgres/Supabase cloud sync, online food search — Open Food Facts + USDA FoodData
+Central — and the Nico assistant with voice dictation are implemented; see the Architecture
+section and `supabase/README.md`.)
 
-**Assistant writes.** Nico can now log foods and apply saved meals to a day, each behind a
-confirmation card. Still deferred: editing meals via chat (create/rename meals, add/remove/adjust
-meal items), creating/editing/deleting foods, and changing targets/settings. Food edit/delete via
-chat additionally needs a shared-catalog ownership guard (`updateFood`/`softDeleteFood` in
-`db/queries.ts` scope only by `id`), plus batch confirmation (approving several writes at once).
+**Assistant write scope.** Nico can log foods and apply saved meals to a day, each behind a
+confirmation card, and accepts voice dictation into its composer. Still deferred: editing meals
+via chat (create/rename meals, add/remove/adjust meal items), creating/editing/deleting foods,
+and changing targets/settings. Food edit/delete via chat additionally needs a shared-catalog
+ownership guard (`updateFood`/`softDeleteFood` in `db/queries.ts` scope only by `id`), plus
+batch confirmation (approving several writes at once). Standalone quick-log voice (outside the
+Nico composer) also remains deferred.

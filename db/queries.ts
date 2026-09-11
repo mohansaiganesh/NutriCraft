@@ -407,6 +407,7 @@ export interface TraceInput {
   toolCalls: number;
   inputTokens: number;
   outputTokens: number;
+  cachedTokens: number;
   durationMs: number;
   startedAt: string;
   steps: string; // pre-serialized JSON (TraceStep[])
@@ -432,6 +433,7 @@ export async function saveTrace(input: TraceInput): Promise<void> {
     toolCalls: input.toolCalls,
     inputTokens: input.inputTokens,
     outputTokens: input.outputTokens,
+    cachedTokens: input.cachedTokens,
     durationMs: input.durationMs,
     startedAt: input.startedAt,
     steps: input.steps,
@@ -466,6 +468,7 @@ export function tracesQuery() {
       toolCalls: assistantTraces.toolCalls,
       inputTokens: assistantTraces.inputTokens,
       outputTokens: assistantTraces.outputTokens,
+      cachedTokens: assistantTraces.cachedTokens,
       durationMs: assistantTraces.durationMs,
       startedAt: assistantTraces.startedAt,
       createdAt: assistantTraces.createdAt,

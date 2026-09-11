@@ -16,6 +16,7 @@ type TraceRow = {
   toolCalls: number;
   inputTokens: number;
   outputTokens: number;
+  cachedTokens: number;
   durationMs: number;
   startedAt: string;
   createdAt: string;
@@ -56,6 +57,7 @@ function TraceCard({ row, onDelete }: { row: TraceRow; onDelete: (row: TraceRow)
     `${row.llmCalls} LLM`,
     row.toolCalls > 0 ? `${row.toolCalls} ${row.toolCalls === 1 ? 'tool' : 'tools'}` : null,
     `${tokens.toLocaleString()} tok`,
+    `${row.cachedTokens.toLocaleString()} cached`,
     `${(row.durationMs / 1000).toFixed(1)}s`,
   ]
     .filter(Boolean)

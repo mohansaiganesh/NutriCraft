@@ -34,6 +34,7 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { router, type Href } from 'expo-router';
 import { IconCheck, IconChevronDown, IconChevronRight, IconHistory, IconMic, IconSparkles, IconTrash, IconX } from './icons';
 import { DataBlock } from './assistant/DataBlock';
+import { MarkdownText } from './assistant/MarkdownText';
 import { settingsQuery } from '@/db/queries';
 import { useAssistant } from '@/lib/assistant/useAssistant';
 import { useSession } from '@/lib/session';
@@ -48,7 +49,6 @@ import { AVAILABLE_MODELS } from '@/lib/assistant/gemini';
 import { errorTitle, previewJson, traceUsage } from '@/lib/assistant/events';
 import type { StopReason, TraceStep } from '@/lib/assistant/events';
 import { parseMarkdown } from '@/lib/assistant/markdown';
-import type { MdBlock, MdSpan } from '@/lib/assistant/markdown';
 
 const TAB_BAR_HEIGHT = 56; // matches app/(tabs)/_layout.tsx
 const STARTERS = ['Calories this week', 'Most expensive meal', 'Am I over target today?'];
@@ -103,7 +103,7 @@ export function AssistantOverlay() {
   const [kbInset, setKbInset] = useState(0);
   const [draft, setDraft] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
-  const { messages, sending, trace, hasKey, model, chooseModel, send, stop, clear, refreshKey, pendingWrite, confirmWrite, cancelWrite } =
+  const { messages, sending, trace, hasKey, model, chooseModel, explicitCache, setExplicitCache, send, stop, clear, refreshKey, pendingWrite, confirmWrite, cancelWrite } =
     useAssistant();
   // Dictation appends to the composer live and keeps listening until the user taps stop; the text
   // stays put for the user to review, then send.
@@ -365,7 +365,7 @@ export function AssistantOverlay() {
                       />
                     ) : null}
 
-                    <View className="px-4 pt-2">
+                    <View className="px-4 pt-2 flex-row items-center gap-2">
                       <View className="relative self-start">
                         {menuOpen ? (
                           <View
@@ -409,6 +409,24 @@ export function AssistantOverlay() {
                           <IconChevronDown size={14} color="#5B6B5E" />
                         </Pressable>
                       </View>
+
+                      {/* Explicit prompt caching: reuses the system prompt + tool defs across calls to
+                          save tokens. Needs a paid Gemini key; otherwise it falls back automatically,
+                          so implicit caching still applies when this is off. */}
+                      <Pressable
+                        onPress={() => setExplicitCache(!explicitCache)}
+                        accessibilityRole="switch"
+                        accessibilityState={{ checked: explicitCache }}
+                        accessibilityLabel="Toggle prompt caching to save tokens"
+                        className={`flex-row items-center gap-1.5 rounded-full border px-[12px] py-[6px] active:opacity-80 ${
+                          explicitCache ? 'border-brand bg-[#EAF7EC]' : 'border-hair bg-card'
+                        }`}
+                      >
+                        <Text className="text-[12px]">⚡</Text>
+                        <Text className={`font-body-md text-[12px] ${explicitCache ? 'text-brand' : 'text-ink3'}`}>
+                          Caching {explicitCache ? 'on' : 'off'}
+                        </Text>
+                      </Pressable>
                     </View>
 
                     <View className="flex-row items-end gap-2 px-4 pt-2 pb-3">
@@ -558,7 +576,11 @@ function StepsDisclosure({ steps }: { steps: TraceStep[] }) {
   ]
     .filter(Boolean)
     .join(' · ');
-  const tokensLine = `${usage.inputTokens.toLocaleString()} in · ${usage.outputTokens.toLocaleString()} out`;
+  // Which cache path ran across the whole answer: explicit if any round referenced a cachedContents
+  // resource, else implicit if any round reported cached tokens.
+  const usedExplicit = steps.some((s) => s.kind === 'model' && s.request?.cachedContent != null);
+  const cacheTag = usedExplicit ? ' · explicit cache' : usage.cachedTokens > 0 ? ' · implicit cache' : '';
+  const tokensLine = `${usage.inputTokens.toLocaleString()} in · ${usage.outputTokens.toLocaleString()} out · ${usage.cachedTokens.toLocaleString()} cached${cacheTag}`;
   return (
     <View className="mt-2 pt-2 border-t border-hair">
       <Pressable onPress={() => setOpen((v) => !v)} className="flex-row items-start gap-1.5 active:opacity-70">
@@ -611,68 +633,6 @@ function ErrorCard({ message }: { message: Message }) {
           ) : null}
         </View>
       ) : null}
-    </View>
-  );
-}
-
-/** Renders an inline run (bold / italic / code) as a nested <Text>. */
-function InlineSpans({ spans }: { spans: MdSpan[] }) {
-  return (
-    <>
-      {spans.map((s, i) => {
-        if (s.code) {
-          return (
-            <Text key={i} className="font-body-md text-[13px] text-ink bg-[#EEF3EA] rounded px-1">
-              {s.text}
-            </Text>
-          );
-        }
-        return (
-          <Text
-            key={i}
-            className={s.bold ? 'font-body-b text-ink' : 'font-body text-ink'}
-            style={s.italic ? { fontStyle: 'italic' } : undefined}
-          >
-            {s.text}
-          </Text>
-        );
-      })}
-    </>
-  );
-}
-
-/** Renders parsed markdown blocks with the Garden type tokens — paragraphs and bullet/ordered lists. */
-function MarkdownText({ blocks }: { blocks: MdBlock[] }) {
-  return (
-    <View className="gap-1.5">
-      {blocks.map((b, i) => {
-        if (b.type === 'paragraph') {
-          return (
-            <Text key={i} className="font-body text-[14.5px] leading-6 text-ink">
-              <InlineSpans spans={b.spans} />
-            </Text>
-          );
-        }
-        const ordered = b.type === 'ordered';
-        return (
-          <View key={i} className="gap-1">
-            {b.items.map((item, j) => (
-              <View key={j} className="flex-row">
-                <Text
-                  className={`text-[14.5px] leading-6 mr-2 ${
-                    ordered ? 'font-body-sb text-ink2' : 'font-body-b text-brand'
-                  }`}
-                >
-                  {ordered ? `${j + 1}.` : '•'}
-                </Text>
-                <Text className="flex-1 font-body text-[14.5px] leading-6 text-ink">
-                  <InlineSpans spans={item} />
-                </Text>
-              </View>
-            ))}
-          </View>
-        );
-      })}
     </View>
   );
 }
@@ -990,6 +950,10 @@ function StepRow({ step }: { step: TraceStep }) {
     const running = step.status === 'running';
     const errored = step.status === 'error';
     const hasTokens = step.inputTokens != null || step.outputTokens != null;
+    const cached = step.cachedTokens ?? 0;
+    // Which cache path this round used: explicit if it referenced a cachedContents resource,
+    // else implicit when Gemini reported a cached prefix on its own.
+    const cacheTag = step.request?.cachedContent ? ' · explicit cache' : cached > 0 ? ' · implicit cache' : '';
     return (
       <View className="flex-row items-center gap-2 py-1">
         <View className="w-[18px] items-center">
@@ -1009,7 +973,8 @@ function StepRow({ step }: { step: TraceStep }) {
         </Text>
         {hasTokens ? (
           <Text className="font-body-md text-[11px] text-ink3">
-            {(step.inputTokens ?? 0).toLocaleString()} in · {(step.outputTokens ?? 0).toLocaleString()} out
+            {(step.inputTokens ?? 0).toLocaleString()} in · {(step.outputTokens ?? 0).toLocaleString()} out ·{' '}
+            {cached.toLocaleString()} cached{cacheTag}
           </Text>
         ) : null}
       </View>

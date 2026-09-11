@@ -5,6 +5,7 @@
  */
 import { ALL_FUNCTION_DECLARATIONS, callGemini } from './gemini';
 import type { GeminiContent, GeminiPart, GeminiResult } from './gemini';
+import { ensureCachedContent, invalidateCache } from './cache';
 import { describeWrite, executeWrite, isWriteTool, NAV_TOOLS, reviseWrite, runTool } from './tools';
 import type { PendingWrite, WriteEdit } from './tools';
 import { newId } from '@/lib/id';
@@ -116,6 +117,9 @@ export async function runAssistant(opts: {
   history: ChatTurn[];
   apiKey: string;
   model: string;
+  /** When true, try to reference an explicit `cachedContents` resource for the stable prompt prefix
+   * (falls back to the full-prompt/implicit path if the key/model can't support it). */
+  explicitCache?: boolean;
   signal?: AbortSignal;
   /** Observes the run as it happens — one snapshot per step, re-emitted (same id) as it transitions. */
   onEvent?: (step: TraceStep) => void;
@@ -176,27 +180,48 @@ export async function runAssistant(opts: {
     const modelStepId = newId();
     const startedAt = new Date().toISOString();
     const startMs = Date.now();
+    // Explicit caching is opt-in and best-effort: ensureCachedContent returns null on a free-tier /
+    // sub-floor key, in which case we send the full prompt and rely on implicit caching.
+    const cacheName = opts.explicitCache
+      ? await ensureCachedContent({ apiKey: opts.apiKey, model: opts.model, systemInstruction: systemPrompt })
+      : null;
     const request: GeminiRequestSnapshot = {
       systemInstruction: systemPrompt,
       contents: JSON.parse(JSON.stringify(contents)) as GeminiContent[],
       toolNames: ALL_FUNCTION_DECLARATIONS.map((d) => d.name),
       generationConfig: null, // the client currently sends no sampling config — recorded as-is.
+      cachedContent: cacheName,
     };
     const base = { kind: 'model', id: modelStepId, iteration, model: opts.model, request, startedAt } as const;
     emit({ ...base, status: 'running' });
     const retries: RetryStep[] = [];
-    const res = await callGemini({
+    const onRetry = (info: { attempt: number; delayMs: number; status: number }) => {
+      const step: RetryStep = { kind: 'retry', id: newId(), ...info };
+      retries.push(step);
+      emit(step);
+    };
+    let res = await callGemini({
       contents,
       systemInstruction: systemPrompt,
       apiKey: opts.apiKey,
       model: opts.model,
+      cachedContent: cacheName ?? undefined,
       signal: opts.signal,
-      onRetry: (info) => {
-        const step: RetryStep = { kind: 'retry', id: newId(), ...info };
-        retries.push(step);
-        emit(step);
-      },
+      onRetry,
     });
+    // The cache resource expired between rounds — drop it and retry once with the full prompt so the
+    // turn still succeeds (next round re-establishes a fresh cache).
+    if (!res.ok && res.error.cacheInvalid && cacheName) {
+      invalidateCache();
+      res = await callGemini({
+        contents,
+        systemInstruction: systemPrompt,
+        apiKey: opts.apiKey,
+        model: opts.model,
+        signal: opts.signal,
+        onRetry,
+      });
+    }
     for (const r of retries) emit({ ...r, settled: true });
     const durationMs = Date.now() - startMs;
     if (res.ok) {
@@ -207,6 +232,7 @@ export async function runAssistant(opts: {
         finishReason: res.finishReason,
         inputTokens: res.usage?.inputTokens,
         outputTokens: res.usage?.outputTokens,
+        cachedTokens: res.usage?.cachedTokens,
         durationMs,
       });
     } else {

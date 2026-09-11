@@ -7,7 +7,9 @@ import { getTrace } from '@/db/queries';
 import type { AssistantTrace } from '@/db/schema';
 import { Card, DetailHeader } from '@/components/ui';
 import { DataBlock } from '@/components/assistant/DataBlock';
+import { MarkdownText } from '@/components/assistant/MarkdownText';
 import { IconCheck, IconChevronDown, IconChevronRight, IconSparkles, IconX } from '@/components/icons';
+import { parseMarkdown } from '@/lib/assistant/markdown';
 import { previewJson } from '@/lib/assistant/events';
 import type { TraceStep } from '@/lib/assistant/events';
 
@@ -33,6 +35,10 @@ function ModelStepCard({ step }: { step: Extract<TraceStep, { kind: 'model' }> }
   const [open, setOpen] = useState(false);
   const errored = step.status === 'error';
   const req = step.request;
+  const cached = step.cachedTokens ?? 0;
+  // Explicit if this round referenced a cachedContents resource; else implicit when a cached prefix
+  // was reported. Shown so the source of any saving is unambiguous.
+  const cacheTag = req?.cachedContent ? ' · explicit cache' : cached > 0 ? ' · implicit cache' : '';
   return (
     <Card className="gap-1.5 py-3">
       <Pressable onPress={() => setOpen((v) => !v)} className="flex-row items-center gap-2 active:opacity-70">
@@ -53,16 +59,18 @@ function ModelStepCard({ step }: { step: Extract<TraceStep, { kind: 'model' }> }
       </Pressable>
       <Text className="ml-[28px] font-body-md text-[11.5px] text-ink3">
         {step.model ?? '—'} · {ms(step.durationMs)} · {(step.inputTokens ?? 0).toLocaleString()} in /{' '}
-        {(step.outputTokens ?? 0).toLocaleString()} out{step.finishReason ? ` · ${step.finishReason}` : ''}
+        {(step.outputTokens ?? 0).toLocaleString()} out · {cached.toLocaleString()} cached{cacheTag}
+        {step.finishReason ? ` · ${step.finishReason}` : ''}
       </Text>
       {open ? (
         <View className="ml-[28px] mt-1 gap-1.5">
           {req ? (
             <>
-              <DataBlock label="System instruction" text={req.systemInstruction} />
+              <DataBlock label="System instruction" text={req.systemInstruction} markdown />
               <DataBlock label="Contents sent" text={previewJson(req.contents, 8000)} />
               <DataBlock label="Tools" text={req.toolNames.join(', ')} />
               <DataBlock label="Generation config" text={req.generationConfig ? previewJson(req.generationConfig) : 'defaults (none sent)'} />
+              {req.cachedContent ? <DataBlock label="Cached content" text={req.cachedContent} /> : null}
             </>
           ) : null}
           {errored ? (
@@ -202,9 +210,11 @@ export default function TraceDetailScreen() {
               <Text className="font-body-sb text-[10px] tracking-wide text-ink3 uppercase mb-1">
                 {trace.status === 'error' ? 'Error' : 'Answer'}
               </Text>
-              <Text className={`font-body text-[14px] leading-5 ${trace.status === 'error' ? 'text-over' : 'text-ink2'}`}>
-                {trace.answer}
-              </Text>
+              {trace.status === 'error' ? (
+                <Text className="font-body text-[14px] leading-5 text-over">{trace.answer}</Text>
+              ) : (
+                <MarkdownText blocks={parseMarkdown(trace.answer)} />
+              )}
             </View>
           </Card>
 
@@ -215,7 +225,10 @@ export default function TraceDetailScreen() {
               <Meta label="Model" value={trace.model || '—'} />
               <Meta label="LLM calls" value={String(trace.llmCalls)} />
               <Meta label="Tool calls" value={String(trace.toolCalls)} />
-              <Meta label="Tokens" value={`${trace.inputTokens.toLocaleString()} in / ${trace.outputTokens.toLocaleString()} out`} />
+              <Meta
+                label="Tokens"
+                value={`${trace.inputTokens.toLocaleString()} in / ${trace.outputTokens.toLocaleString()} out (${trace.cachedTokens.toLocaleString()} cached)`}
+              />
               <Meta label="Duration" value={ms(trace.durationMs)} />
               <Meta label="Started" value={new Date(trace.startedAt).toLocaleString()} />
               {trace.stopReason ? <Meta label="Stop reason" value={trace.stopReason} /> : null}

@@ -9,6 +9,7 @@ import { newId } from '@/lib/id';
 import { saveTrace } from '@/db/queries';
 import { getApiKey, hasApiKey } from './keyStore';
 import { getModel, setModel } from './modelStore';
+import { getCachePref, setCachePref } from './cachePrefStore';
 import { DEFAULT_MODEL } from './gemini';
 import { runAssistant } from './agent';
 import type { ChatTurn, ConfirmDecision, ConfirmRequest, NavTarget } from './agent';
@@ -52,6 +53,7 @@ export function useAssistant() {
   const [trace, setTrace] = useState<TraceStep[]>([]); // live activity for the in-flight question
   const [hasKey, setHasKey] = useState<boolean | null>(null); // null = not checked yet
   const [model, setModelState] = useState<string>(DEFAULT_MODEL);
+  const [explicitCache, setExplicitCacheState] = useState<boolean>(false); // explicit prompt caching toggle
   const [pendingWrite, setPendingWrite] = useState<ConfirmRequest | null>(null); // a write awaiting Confirm/Cancel
   const abortRef = useRef<AbortController | null>(null);
   const resolveConfirmRef = useRef<((d: ConfirmDecision) => void) | null>(null); // resolves the paused onConfirm
@@ -74,10 +76,14 @@ export function useAssistant() {
     refreshKey();
   }, [refreshKey]);
 
-  // Load the user's chosen model (falls back to DEFAULT_MODEL); re-runs when the account changes.
+  // Load the user's chosen model + caching preference (both fall back to defaults); re-runs when the
+  // account changes.
   useEffect(() => {
     let active = true;
-    if (userId) getModel(userId).then((m) => active && setModelState(m));
+    if (userId) {
+      getModel(userId).then((m) => active && setModelState(m));
+      getCachePref(userId).then((c) => active && setExplicitCacheState(c));
+    }
     return () => {
       active = false;
     };
@@ -88,6 +94,15 @@ export function useAssistant() {
     (id: string) => {
       setModelState(id);
       if (userId) setModel(userId, id);
+    },
+    [userId]
+  );
+
+  // Toggle explicit prompt caching from the chat: update state now, persist per-user in the background.
+  const setExplicitCache = useCallback(
+    (on: boolean) => {
+      setExplicitCacheState(on);
+      if (userId) setCachePref(userId, on);
     },
     [userId]
   );
@@ -139,7 +154,7 @@ export function useAssistant() {
 
       const controller = new AbortController();
       abortRef.current = controller;
-      const res = await runAssistant({ question: text, history, apiKey: key, model, signal: controller.signal, onEvent, onConfirm });
+      const res = await runAssistant({ question: text, history, apiKey: key, model, explicitCache, signal: controller.signal, onEvent, onConfirm });
       if (myRun !== runSeq.current || controller.signal.aborted) {
         // Cancelled or superseded — drop the partial trace and append no bubble.
         if (myRun === runSeq.current) setTrace([]);
@@ -178,6 +193,7 @@ export function useAssistant() {
           toolCalls: steps.filter((s) => s.kind === 'tool').length,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
+          cachedTokens: usage.cachedTokens,
           durationMs: Date.now() - startMs,
           startedAt,
           steps: JSON.stringify(steps),
@@ -189,7 +205,7 @@ export function useAssistant() {
       setSending(false);
       abortRef.current = null;
     },
-    [messages, sending, userId, model]
+    [messages, sending, userId, model, explicitCache]
   );
 
   const confirmWrite = useCallback(
@@ -232,6 +248,8 @@ export function useAssistant() {
     hasKey,
     model,
     chooseModel,
+    explicitCache,
+    setExplicitCache,
     send,
     stop,
     clear,

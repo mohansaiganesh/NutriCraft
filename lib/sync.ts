@@ -127,6 +127,7 @@ const TABLES: SyncTable[] = [
       toolCalls: 'tool_calls',
       inputTokens: 'input_tokens',
       outputTokens: 'output_tokens',
+      cachedTokens: 'cached_tokens',
       durationMs: 'duration_ms',
       startedAt: 'started_at',
       steps: 'steps',

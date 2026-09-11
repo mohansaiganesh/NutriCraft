@@ -24,6 +24,9 @@ export interface GeminiRequestSnapshot {
   contents: GeminiContent[];
   toolNames: string[];
   generationConfig: Record<string, unknown> | null;
+  /** The `cachedContents` resource this round referenced (systemInstruction + tools live there), or
+   * null when the full prompt was sent inline. Lets the trace show whether explicit caching applied. */
+  cachedContent: string | null;
 }
 
 /**
@@ -42,6 +45,7 @@ export interface ModelStep {
   finishReason?: string; // candidates[0].finishReason when reported
   inputTokens?: number; // promptTokenCount — set once the call returns (absent while running)
   outputTokens?: number; // candidatesTokenCount
+  cachedTokens?: number; // cachedContentTokenCount — the reused portion of inputTokens (implicit or explicit)
   errorKind?: AssistantErrorKind; // set when status === 'error'
   errorMessage?: string; // raw provider message when status === 'error'
   startedAt?: string; // ISO timestamp when the call was sent
@@ -171,6 +175,7 @@ export interface TraceUsage {
   calls: number;
   inputTokens: number;
   outputTokens: number;
+  cachedTokens: number;
 }
 
 /** Sum the model steps of a trace. A running call still counts (it has been sent); its tokens are 0. */
@@ -178,14 +183,16 @@ export function traceUsage(steps: TraceStep[]): TraceUsage {
   let calls = 0;
   let inputTokens = 0;
   let outputTokens = 0;
+  let cachedTokens = 0;
   for (const s of steps) {
     if (s.kind === 'model') {
       calls++;
       inputTokens += s.inputTokens ?? 0;
       outputTokens += s.outputTokens ?? 0;
+      cachedTokens += s.cachedTokens ?? 0;
     }
   }
-  return { calls, inputTokens, outputTokens };
+  return { calls, inputTokens, outputTokens, cachedTokens };
 }
 
 // ------------------------------------------------------------------ tool labels

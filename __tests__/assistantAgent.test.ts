@@ -72,7 +72,7 @@ const SUMMARY = "I'll add dates and rice to your breakfast.";
 const logCall = (foodId: string, grams: number) => ({
   functionCall: { name: 'log_food', args: { foodId, grams, mealType: 'breakfast' } },
 });
-const textRound = (text: string) => ({ ok: true, parts: [{ text }], usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8 } });
+const textRound = (text: string) => ({ ok: true, parts: [{ text }], usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8, cachedTokens: 0 } });
 
 beforeEach(() => {
   jest.clearAllMocks();

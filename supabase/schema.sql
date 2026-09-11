@@ -88,6 +88,7 @@ create table if not exists public.assistant_traces (
   tool_calls    integer not null default 0,
   input_tokens  integer not null default 0,
   output_tokens integer not null default 0,
+  cached_tokens integer not null default 0,
   duration_ms   integer not null default 0,
   started_at    text not null,
   steps         text not null default '[]',

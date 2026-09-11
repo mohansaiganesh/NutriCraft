@@ -1,0 +1,1 @@
+ALTER TABLE `assistant_traces` ADD `cached_tokens` integer DEFAULT 0 NOT NULL;

@@ -36,6 +36,13 @@
       "when": 1789124386280,
       "tag": "0004_slimy_nighthawk",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1789140672416,
+      "tag": "0005_handy_abomination",
+      "breakpoints": true
     }
   ]
 }

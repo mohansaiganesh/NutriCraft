@@ -147,6 +147,7 @@ export const assistantTraces = sqliteTable('assistant_traces', {
   toolCalls: integer('tool_calls').notNull().default(0),
   inputTokens: integer('input_tokens').notNull().default(0),
   outputTokens: integer('output_tokens').notNull().default(0),
+  cachedTokens: integer('cached_tokens').notNull().default(0),
   durationMs: integer('duration_ms').notNull().default(0),
   startedAt: text('started_at').notNull(), // ISO — when the request was sent
   steps: text('steps').notNull().default('[]'), // JSON-serialized TraceStep[]

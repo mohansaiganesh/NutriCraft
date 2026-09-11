@@ -110,22 +110,22 @@ describe('errorTitle', () => {
 });
 
 describe('traceUsage', () => {
-  it('counts model calls and sums their input/output tokens, ignoring tool/retry steps', () => {
+  it('counts model calls and sums their input/output/cached tokens, ignoring tool/retry steps', () => {
     const steps: TraceStep[] = [
-      { kind: 'model', id: 'm1', iteration: 0, status: 'done', inputTokens: 1204, outputTokens: 342 },
+      { kind: 'model', id: 'm1', iteration: 0, status: 'done', inputTokens: 1204, outputTokens: 342, cachedTokens: 1000 },
       { kind: 'tool', id: 't1', name: 'get_day_totals', label: 'Adding up a day', args: {}, status: 'ok' },
-      { kind: 'model', id: 'm2', iteration: 1, status: 'done', inputTokens: 1556, outputTokens: 61 },
+      { kind: 'model', id: 'm2', iteration: 1, status: 'done', inputTokens: 1556, outputTokens: 61, cachedTokens: 1200 },
     ];
-    expect(traceUsage(steps)).toEqual({ calls: 2, inputTokens: 2760, outputTokens: 403 });
+    expect(traceUsage(steps)).toEqual({ calls: 2, inputTokens: 2760, outputTokens: 403, cachedTokens: 2200 });
   });
 
   it('counts a still-running call (tokens not yet known) as a call with zero tokens', () => {
     const steps: TraceStep[] = [{ kind: 'model', id: 'm1', iteration: 0, status: 'running' }];
-    expect(traceUsage(steps)).toEqual({ calls: 1, inputTokens: 0, outputTokens: 0 });
+    expect(traceUsage(steps)).toEqual({ calls: 1, inputTokens: 0, outputTokens: 0, cachedTokens: 0 });
   });
 
   it('is zero for an empty trace', () => {
-    expect(traceUsage([])).toEqual({ calls: 0, inputTokens: 0, outputTokens: 0 });
+    expect(traceUsage([])).toEqual({ calls: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0 });
   });
 
   it('ignores confirm steps (they are not model calls)', () => {
@@ -133,7 +133,7 @@ describe('traceUsage', () => {
       { kind: 'model', id: 'm1', iteration: 0, status: 'done', inputTokens: 100, outputTokens: 20 },
       { kind: 'confirm', id: 'c1', tool: 'log_food', label: 'Logging a food', summary: 'Log 150 g …', status: 'approved' },
     ];
-    expect(traceUsage(steps)).toEqual({ calls: 1, inputTokens: 100, outputTokens: 20 });
+    expect(traceUsage(steps)).toEqual({ calls: 1, inputTokens: 100, outputTokens: 20, cachedTokens: 0 });
   });
 });
 

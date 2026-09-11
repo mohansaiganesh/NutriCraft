@@ -29,7 +29,7 @@ export const AVAILABLE_MODELS: { id: string; label: string }[] = [
 /** Default model when the user hasn't picked one. Override via EXPO_PUBLIC_GEMINI_MODEL. */
 export const DEFAULT_MODEL = process.env.EXPO_PUBLIC_GEMINI_MODEL || 'gemini-3.5-flash-lite';
 
-const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
+export const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 const TIMEOUT_MS = 30_000; // LLM calls are slower than the 6s food-search bound.
 const MAX_RETRIES = 2; // extra attempts on transient 5xx (Gemini function calling 500s intermittently).
 
@@ -47,6 +47,16 @@ export type GeminiErrorKind = 'auth' | 'rate_limit' | 'network' | 'bad_response'
 export interface GeminiError {
   kind: GeminiErrorKind;
   message: string;
+  /** Set when the failure is a stale/missing `cachedContent` reference — the caller should drop the
+   * cache and retry on the implicit path (see agent.ts). */
+  cacheInvalid?: boolean;
+}
+
+/** True when a 4xx looks like the referenced `cachedContent` expired or was never found, so the
+ * caller can transparently fall back to sending the full prompt (implicit caching). */
+export function isCacheInvalidError(status: number, message: string): boolean {
+  if (status !== 400 && status !== 403 && status !== 404) return false;
+  return /cache/i.test(message);
 }
 
 /** Token accounting from the response's usageMetadata (absent on models that don't report it). */
@@ -54,6 +64,8 @@ export interface GeminiUsage {
   inputTokens: number;
   outputTokens: number;
   totalTokens: number;
+  /** Portion of inputTokens served from cache (implicit OR explicit) — cachedContentTokenCount. */
+  cachedTokens: number;
 }
 
 export type GeminiResult =
@@ -81,6 +93,10 @@ export async function callGemini(opts: {
   systemInstruction: string;
   apiKey: string;
   model: string;
+  /** When set, the request references this cached-content resource and OMITS systemInstruction +
+   * tools (they live in the cache). When absent, the full prompt is sent — implicit caching still
+   * applies automatically because the stable prefix leads the request. */
+  cachedContent?: string;
   signal?: AbortSignal;
   /** Fired just before each transient-5xx backoff, so the UI can show the retry. Fire-and-forget. */
   onRetry?: (info: { attempt: number; delayMs: number; status: number }) => void;
@@ -99,14 +115,19 @@ export async function callGemini(opts: {
 
     let res: Response;
     try {
+      // With an explicit cache, the systemInstruction + tools already live in the resource and Gemini
+      // rejects sending them again — reference the cache instead. Otherwise send the full prompt.
+      const body = opts.cachedContent
+        ? { contents: opts.contents, cachedContent: opts.cachedContent }
+        : {
+            systemInstruction: { parts: [{ text: opts.systemInstruction }] },
+            contents: opts.contents,
+            tools: [{ functionDeclarations: ALL_FUNCTION_DECLARATIONS }],
+          };
       res = await fetch(url, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': opts.apiKey },
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: opts.systemInstruction }] },
-          contents: opts.contents,
-          tools: [{ functionDeclarations: ALL_FUNCTION_DECLARATIONS }],
-        }),
+        body: JSON.stringify(body),
         signal: controller.signal,
       });
     } catch {
@@ -131,7 +152,13 @@ export async function callGemini(opts: {
       } catch {
         /* non-JSON error body */
       }
-      if (res.status === 400 || res.status === 401 || res.status === 403) {
+      if (res.status === 400 || res.status === 401 || res.status === 403 || res.status === 404) {
+        // A stale/missing cache reference isn't an auth problem — flag it so the caller retries
+        // without the cache instead of showing the user a "bad key" card.
+        if (opts.cachedContent && isCacheInvalidError(res.status, message)) {
+          return { ok: false, error: { kind: 'api', message, cacheInvalid: true } };
+        }
+        if (res.status === 404) return { ok: false, error: { kind: 'api', message } };
         return { ok: false, error: { kind: 'auth', message } };
       }
       if (res.status === 429) return { ok: false, error: { kind: 'rate_limit', message } };
@@ -169,6 +196,7 @@ export async function callGemini(opts: {
             inputTokens: u.promptTokenCount ?? 0,
             outputTokens: u.candidatesTokenCount ?? 0,
             totalTokens: u.totalTokenCount ?? 0,
+            cachedTokens: u.cachedContentTokenCount ?? 0,
           }
         : undefined;
       const finishReason = data?.candidates?.[0]?.finishReason;

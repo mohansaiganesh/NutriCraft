@@ -39,6 +39,12 @@ In the Supabase **SQL editor**, run these files **in order**:
 > is safe (`create table/policy if not exists`-style). Until it exists in the cloud, Nico's traces are
 > recorded and viewable **locally** but can't sync. It is deliberately **not** in the realtime
 > publication — trace rows can be large and don't need live cross-device streaming.
+>
+> The **prompt-caching** metric adds a `cached_tokens` column to `assistant_traces`. Fresh projects
+> get it from `schema.sql`; an existing project needs:
+> ```sql
+> alter table public.assistant_traces add column if not exists cached_tokens integer not null default 0;
+> ```
 
 No starter data ships. A new account opens to the **shared catalog** plus its own (initially
 empty) private foods. The shared catalog is admin-curated **server-side**: run

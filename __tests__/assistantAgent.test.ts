@@ -13,6 +13,7 @@
 
 jest.mock('@/lib/assistant/gemini', () => ({
   callGemini: jest.fn(),
+  ALL_FUNCTION_DECLARATIONS: [{ name: 'log_food' }, { name: 'search_foods' }],
 }));
 
 jest.mock('@/lib/assistant/tools', () => ({

@@ -13,7 +13,7 @@ import { FUNCTION_DECLARATIONS, WRITE_FUNCTION_DECLARATIONS } from './tools';
 
 // The model sees the read tools and the write tools together; writes still can't run without the
 // user confirming the card the agent loop pauses on (see agent.ts).
-const ALL_FUNCTION_DECLARATIONS = [...FUNCTION_DECLARATIONS, ...WRITE_FUNCTION_DECLARATIONS];
+export const ALL_FUNCTION_DECLARATIONS = [...FUNCTION_DECLARATIONS, ...WRITE_FUNCTION_DECLARATIONS];
 
 /** Models the user can pick in Settings — all served on the Generative Language API with
  * function calling + system instructions. Gemini 3.6 Flash is the reliable, current default
@@ -57,7 +57,7 @@ export interface GeminiUsage {
 }
 
 export type GeminiResult =
-  | { ok: true; parts: GeminiPart[]; usage?: GeminiUsage }
+  | { ok: true; parts: GeminiPart[]; usage?: GeminiUsage; finishReason?: string }
   | { ok: false; error: GeminiError };
 
 /** Sleep that resolves early (rejects) if the external signal aborts during a retry backoff. */
@@ -171,7 +171,8 @@ export async function callGemini(opts: {
             totalTokens: u.totalTokenCount ?? 0,
           }
         : undefined;
-      return { ok: true, parts: parts as GeminiPart[], usage };
+      const finishReason = data?.candidates?.[0]?.finishReason;
+      return { ok: true, parts: parts as GeminiPart[], usage, finishReason };
     } catch {
       return { ok: false, error: { kind: 'bad_response', message: 'Could not read the Gemini response.' } };
     }

@@ -33,6 +33,12 @@ In the Supabase **SQL editor**, run these files **in order**:
 > ```
 > Existing RLS (`id = auth.uid()`) already covers them — no policy change. Until this runs, editing
 > Profile works locally but the fields can't sync to the cloud.
+>
+> The **assistant request-history** feature (Account → Request history) adds an `assistant_traces`
+> table. `schema.sql` + `rls.sql` create it on a fresh project; re-running them on an existing project
+> is safe (`create table/policy if not exists`-style). Until it exists in the cloud, Nico's traces are
+> recorded and viewable **locally** but can't sync. It is deliberately **not** in the realtime
+> publication — trace rows can be large and don't need live cross-device streaming.
 
 No starter data ships. A new account opens to the **shared catalog** plus its own (initially
 empty) private foods. The shared catalog is admin-curated **server-side**: run

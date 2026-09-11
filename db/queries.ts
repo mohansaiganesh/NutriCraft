@@ -1,11 +1,11 @@
-import { and, asc, between, desc, eq, like, or, isNull } from 'drizzle-orm';
+import { and, asc, between, desc, eq, inArray, like, or, isNull } from 'drizzle-orm';
 import { newId } from '@/lib/id';
 import { requireUserId } from '@/lib/currentUser';
 import type { PerHundredBasis } from '@/lib/nutrition';
 import type { RemoteFood } from '@/lib/foodSearch';
 import type { MealType } from '@/constants/meals';
 import { db } from './client';
-import { dailyLogs, foodItems, mealItems, meals, settings } from './schema';
+import { assistantTraces, dailyLogs, foodItems, mealItems, meals, settings } from './schema';
 
 const now = () => new Date().toISOString();
 
@@ -386,5 +386,117 @@ export async function wipeLocalUserData(uid: string): Promise<void> {
   await db.delete(mealItems).where(eq(mealItems.userId, uid));
   await db.delete(meals).where(eq(meals.userId, uid));
   await db.delete(foodItems).where(eq(foodItems.userId, uid));
+  await db.delete(assistantTraces).where(eq(assistantTraces.userId, uid));
   await db.delete(settings).where(eq(settings.id, uid));
+}
+
+// ---------------------------------------------------------------- Assistant traces
+
+/** How many traces to keep per user. Older ones are soft-deleted on each save (so the pruning
+ * propagates through sync) — this is a diagnostics log, not permanent history. */
+export const TRACE_RETENTION = 100;
+
+export interface TraceInput {
+  question: string;
+  answer: string;
+  status: 'ok' | 'error' | 'stopped_early';
+  errorKind?: string | null;
+  stopReason?: string | null;
+  model: string;
+  llmCalls: number;
+  toolCalls: number;
+  inputTokens: number;
+  outputTokens: number;
+  durationMs: number;
+  startedAt: string;
+  steps: string; // pre-serialized JSON (TraceStep[])
+}
+
+/**
+ * Persist one completed assistant request, then prune: soft-delete any of this user's traces beyond
+ * the newest TRACE_RETENTION. Pruning is a soft-delete (not a DELETE) so the removal syncs like every
+ * other tombstone. Intended to be called from a try/catch — a failure here must never break the chat.
+ */
+export async function saveTrace(input: TraceInput): Promise<void> {
+  const uid = requireUserId();
+  await db.insert(assistantTraces).values({
+    id: newId(),
+    userId: uid,
+    question: input.question,
+    answer: input.answer,
+    status: input.status,
+    errorKind: input.errorKind ?? null,
+    stopReason: input.stopReason ?? null,
+    model: input.model,
+    llmCalls: input.llmCalls,
+    toolCalls: input.toolCalls,
+    inputTokens: input.inputTokens,
+    outputTokens: input.outputTokens,
+    durationMs: input.durationMs,
+    startedAt: input.startedAt,
+    steps: input.steps,
+  });
+
+  // Find rows beyond the newest N and tombstone them (SQLite needs a LIMIT alongside OFFSET).
+  const stale = await db
+    .select({ id: assistantTraces.id })
+    .from(assistantTraces)
+    .where(and(eq(assistantTraces.deleted, false), eq(assistantTraces.userId, uid)))
+    .orderBy(desc(assistantTraces.createdAt))
+    .limit(1_000_000)
+    .offset(TRACE_RETENTION);
+  if (stale.length > 0) {
+    await db
+      .update(assistantTraces)
+      .set({ deleted: true, updatedAt: now() })
+      .where(inArray(assistantTraces.id, stale.map((r) => r.id)));
+  }
+}
+
+/** Live-query builder for the history list — summary columns only (the `steps` blob is omitted so the
+ * list stays light); newest first, scoped to the current user. */
+export function tracesQuery() {
+  return db
+    .select({
+      id: assistantTraces.id,
+      question: assistantTraces.question,
+      status: assistantTraces.status,
+      model: assistantTraces.model,
+      llmCalls: assistantTraces.llmCalls,
+      toolCalls: assistantTraces.toolCalls,
+      inputTokens: assistantTraces.inputTokens,
+      outputTokens: assistantTraces.outputTokens,
+      durationMs: assistantTraces.durationMs,
+      startedAt: assistantTraces.startedAt,
+      createdAt: assistantTraces.createdAt,
+    })
+    .from(assistantTraces)
+    .where(and(eq(assistantTraces.deleted, false), eq(assistantTraces.userId, requireUserId())))
+    .orderBy(desc(assistantTraces.createdAt));
+}
+
+/** One trace (full row, including the `steps` JSON), scoped to the current user. */
+export async function getTrace(id: string) {
+  const rows = await db
+    .select()
+    .from(assistantTraces)
+    .where(and(eq(assistantTraces.id, id), eq(assistantTraces.userId, requireUserId())))
+    .limit(1);
+  return rows[0] ?? null;
+}
+
+/** Soft-delete all of the current user's traces (the viewer's "Clear history"). */
+export async function clearTraces(): Promise<void> {
+  await db
+    .update(assistantTraces)
+    .set({ deleted: true, updatedAt: now() })
+    .where(and(eq(assistantTraces.deleted, false), eq(assistantTraces.userId, requireUserId())));
+}
+
+/** Soft-delete one trace (scoped to the current user) — powers the per-row delete in the history list. */
+export async function deleteTrace(id: string): Promise<void> {
+  await db
+    .update(assistantTraces)
+    .set({ deleted: true, updatedAt: now() })
+    .where(and(eq(assistantTraces.id, id), eq(assistantTraces.userId, requireUserId())));
 }

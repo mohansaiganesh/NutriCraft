@@ -361,6 +361,17 @@ export function IconMail({ size, color, strokeWidth = 2.1 }: IconProps) {
   );
 }
 
+/** Clock with a counter-clockwise arrow — "history" / past requests. */
+export function IconHistory({ size, color, strokeWidth = 2.1 }: IconProps) {
+  return (
+    <Svg {...base(size, color, strokeWidth)}>
+      <Path d="M3.2 8.5A9 9 0 1 1 3 12" />
+      <Polyline points="3 4 3 8.5 7.5 8.5" />
+      <Polyline points="12 7.5 12 12 15.5 14" />
+    </Svg>
+  );
+}
+
 /** Meal-section icon by key (used on the Home dashboard + meal builder). */
 export type MealIconName = 'sunrise' | 'sun' | 'moon' | 'apple';
 export function MealIcon({ name, size, color, strokeWidth }: IconProps & { name: MealIconName }) {

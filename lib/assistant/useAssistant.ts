@@ -6,12 +6,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSession } from '@/lib/session';
 import { newId } from '@/lib/id';
+import { saveTrace } from '@/db/queries';
 import { getApiKey, hasApiKey } from './keyStore';
 import { getModel, setModel } from './modelStore';
 import { DEFAULT_MODEL } from './gemini';
 import { runAssistant } from './agent';
 import type { ChatTurn, ConfirmDecision, ConfirmRequest, NavTarget } from './agent';
 import type { WriteEdit } from './tools';
+import { traceUsage } from './events';
 import type { AssistantErrorKind, StopReason, TraceStep } from './events';
 
 export interface Message {
@@ -111,6 +113,8 @@ export function useAssistant() {
 
       setMessages((prev) => [...prev, { id: newId(), role: 'user', text }]);
       setSending(true);
+      const startedAt = new Date().toISOString();
+      const startMs = Date.now();
 
       // Fresh run token + trace. `steps` is the authoritative accumulator (avoids stale async state);
       // `setTrace` just mirrors it for rendering. Upsert by id so a step's running→done replaces in place.
@@ -157,6 +161,31 @@ export function useAssistant() {
             },
       ]);
       setTrace([]); // the trace now lives on the message
+
+      // Persist the completed request as a durable trace (success OR error — a failed LLM call is the
+      // most useful thing to inspect later). Never let a DB hiccup break the chat. Aborted/superseded
+      // runs are dropped above, so they are never saved.
+      try {
+        const usage = traceUsage(steps);
+        await saveTrace({
+          question: text,
+          answer: res.ok ? res.text : res.error.message,
+          status: res.ok ? (res.stoppedEarly ? 'stopped_early' : 'ok') : 'error',
+          errorKind: res.ok ? null : res.error.kind,
+          stopReason: res.ok && res.stoppedEarly ? res.stoppedEarly.kind : null,
+          model,
+          llmCalls: usage.calls,
+          toolCalls: steps.filter((s) => s.kind === 'tool').length,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          durationMs: Date.now() - startMs,
+          startedAt,
+          steps: JSON.stringify(steps),
+        });
+      } catch (e) {
+        if (__DEV__) console.warn('[assistant] saveTrace failed', e);
+      }
+
       setSending(false);
       abortRef.current = null;
     },

@@ -11,6 +11,8 @@ export default function AccountLayout() {
       <Stack.Screen name="security" />
       <Stack.Screen name="data" />
       <Stack.Screen name="about" />
+      <Stack.Screen name="traces" />
+      <Stack.Screen name="trace/[id]" />
     </Stack>
   );
 }

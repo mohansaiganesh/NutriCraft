@@ -3,14 +3,14 @@
  * read-only tools to call, execute them locally against SQLite, feed the results back, and
  * repeat until the model returns a plain text answer (or we hit the iteration cap).
  */
-import { callGemini } from './gemini';
+import { ALL_FUNCTION_DECLARATIONS, callGemini } from './gemini';
 import type { GeminiContent, GeminiPart, GeminiResult } from './gemini';
 import { describeWrite, executeWrite, isWriteTool, NAV_TOOLS, reviseWrite, runTool } from './tools';
 import type { PendingWrite, WriteEdit } from './tools';
 import { newId } from '@/lib/id';
 import { todayISO } from '@/lib/format';
 import { callSignature, describeError, describeStop, toolErrorMessage, toolLabel, toolResultOk, writeDoneMessage } from './events';
-import type { AssistantErrorKind, RetryStep, StopReason, StopReasonKind, TraceStep } from './events';
+import type { AssistantErrorKind, GeminiRequestSnapshot, RetryStep, StopReason, StopReasonKind, TraceStep } from './events';
 
 // The loop adapts to observed progress rather than a single flat cap. These are safety BOUNDS, not
 // the normal stop — most questions finish in 1–3 rounds when the model returns plain text.
@@ -155,7 +155,7 @@ export async function runAssistant(opts: {
   // Writes proposed this run. They are NOT executed inline: each is validated + staged here, and the
   // whole batch is confirmed ONCE at the end (see confirmStaged) — so the user sees a single card no
   // matter how the model split the write calls across turns.
-  const staged: { stepId: string; name: string; label: string; pending: PendingWrite }[] = [];
+  const staged: { stepId: string; name: string; label: string; pending: PendingWrite; startedAt: string }[] = [];
 
   /**
    * Exit the loop early. If the model has already produced usable text, return it as a successful
@@ -168,11 +168,22 @@ export async function runAssistant(opts: {
     return fail('iteration_limit', detail, iteration);
   };
 
-  /** One Gemini round-trip with its trace rows (model running→done + any retries). Shared by the
-   * main loop and the single closing round after a confirmation. */
+  /** One Gemini round-trip with its trace rows (model running→done/error + any retries). Shared by the
+   * main loop and the single closing round after a confirmation. The request is snapshotted at call
+   * time (deep copy — `contents` keeps growing) and carried on every emit so the persisted trace shows
+   * exactly what was sent to the model. */
   const callModel = async (iteration: number): Promise<GeminiResult> => {
     const modelStepId = newId();
-    emit({ kind: 'model', id: modelStepId, iteration, status: 'running' });
+    const startedAt = new Date().toISOString();
+    const startMs = Date.now();
+    const request: GeminiRequestSnapshot = {
+      systemInstruction: systemPrompt,
+      contents: JSON.parse(JSON.stringify(contents)) as GeminiContent[],
+      toolNames: ALL_FUNCTION_DECLARATIONS.map((d) => d.name),
+      generationConfig: null, // the client currently sends no sampling config — recorded as-is.
+    };
+    const base = { kind: 'model', id: modelStepId, iteration, model: opts.model, request, startedAt } as const;
+    emit({ ...base, status: 'running' });
     const retries: RetryStep[] = [];
     const res = await callGemini({
       contents,
@@ -187,22 +198,29 @@ export async function runAssistant(opts: {
       },
     });
     for (const r of retries) emit({ ...r, settled: true });
+    const durationMs = Date.now() - startMs;
     if (res.ok) {
       emit({
-        kind: 'model',
-        id: modelStepId,
-        iteration,
+        ...base,
         status: 'done',
+        response: res.parts,
+        finishReason: res.finishReason,
         inputTokens: res.usage?.inputTokens,
         outputTokens: res.usage?.outputTokens,
+        durationMs,
       });
+    } else {
+      // Terminal failure — record WHICH call died and why instead of leaving it spinning as running.
+      emit({ ...base, status: 'error', errorKind: res.error.kind, errorMessage: res.error.message, durationMs });
     }
     return res;
   };
 
   /** Run a read tool immediately, emitting its running→ok/error trace row. */
   const handleRead = async (name: string, label: string, stepId: string, args: Record<string, unknown>) => {
-    emit({ kind: 'tool', id: stepId, name, label, args, status: 'running' });
+    const startedAt = new Date().toISOString();
+    const startMs = Date.now();
+    emit({ kind: 'tool', id: stepId, name, label, args, status: 'running', startedAt });
     const result = await runTool(name, args);
     const ok = toolResultOk(result);
     emit({
@@ -215,6 +233,8 @@ export async function runAssistant(opts: {
       result,
       ok,
       error: ok ? undefined : toolErrorMessage(result),
+      startedAt,
+      durationMs: Date.now() - startMs,
     });
     return result;
   };
@@ -230,15 +250,16 @@ export async function runAssistant(opts: {
     stepId: string,
     args: Record<string, unknown>
   ): Promise<Record<string, unknown>> => {
+    const startedAt = new Date().toISOString();
     const described = await describeWrite(name, args);
     if (!toolResultOk(described)) {
       // Bad/hallucinated args — surface as a tool error so the model can correct, no card shown.
-      emit({ kind: 'tool', id: stepId, name, label, args, status: 'error', result: described, ok: false, error: toolErrorMessage(described) });
+      emit({ kind: 'tool', id: stepId, name, label, args, status: 'error', result: described, ok: false, error: toolErrorMessage(described), startedAt });
       return described as Record<string, unknown>;
     }
     const pending = described as PendingWrite;
-    staged.push({ stepId, name, label, pending });
-    emit({ kind: 'confirm', id: stepId, tool: name, label, summary: pending.summary, destructive: pending.destructive, status: 'awaiting' });
+    staged.push({ stepId, name, label, pending, startedAt });
+    emit({ kind: 'confirm', id: stepId, tool: name, label, summary: pending.summary, destructive: pending.destructive, status: 'awaiting', startedAt });
     return { staged: true };
   };
 
@@ -251,9 +272,10 @@ export async function runAssistant(opts: {
    * proposal).
    */
   const confirmStaged = async (): Promise<AssistantResult> => {
+    const sinceStart = (startedAt: string) => Date.now() - Date.parse(startedAt);
     const rejectAll = () => {
       for (const s of staged) {
-        emit({ kind: 'confirm', id: s.stepId, tool: s.name, label: s.label, summary: s.pending.summary, destructive: s.pending.destructive, status: 'rejected' });
+        emit({ kind: 'confirm', id: s.stepId, tool: s.name, label: s.label, summary: s.pending.summary, destructive: s.pending.destructive, status: 'rejected', startedAt: s.startedAt, durationMs: sinceStart(s.startedAt) });
       }
     };
 
@@ -296,7 +318,7 @@ export async function runAssistant(opts: {
     for (const s of staged) {
       const result = await executeWrite(s.name, s.pending.payload);
       const ok = result != null && typeof result === 'object' && !('error' in result);
-      emit({ kind: 'confirm', id: s.stepId, tool: s.name, label: s.label, summary: s.pending.summary, destructive: s.pending.destructive, status: 'approved', result });
+      emit({ kind: 'confirm', id: s.stepId, tool: s.name, label: s.label, summary: s.pending.summary, destructive: s.pending.destructive, status: 'approved', result, startedAt: s.startedAt, durationMs: sinceStart(s.startedAt) });
       outcomes.push({ phrase: s.pending.donePhrase, ok });
     }
 

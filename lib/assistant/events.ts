@@ -9,18 +9,43 @@
  * Transport is a single union upserted by `id`: a step is emitted first as `running`, then
  * re-emitted with the SAME id as `ok`/`error`/`done`. Consumers just replace-or-push by id.
  */
-import type { GeminiErrorKind } from './gemini';
+import type { GeminiContent, GeminiErrorKind, GeminiPart } from './gemini';
 
 export type ToolStatus = 'running' | 'ok' | 'error';
 
-/** A round-trip to Gemini, rendered as its own row. Token counts are set on the `done` re-emit. */
+/**
+ * The exact request sent to Gemini for one round, snapshotted at call time so the persisted trace can
+ * show "what was passed to the model" end-to-end. `contents` is a DEEP COPY (the agent mutates the
+ * running conversation across rounds). `generationConfig` is whatever sampling config was sent —
+ * currently `null` (the client sends none), which keeps the trace honest that defaults were used.
+ */
+export interface GeminiRequestSnapshot {
+  systemInstruction: string;
+  contents: GeminiContent[];
+  toolNames: string[];
+  generationConfig: Record<string, unknown> | null;
+}
+
+/**
+ * A round-trip to Gemini, rendered as its own row. Token counts + response are set on the terminal
+ * re-emit; `request`, `model`, `startedAt` are carried on every emit so the upsert-by-id reducer
+ * never loses them. A failed call terminates as `status: 'error'` (not left spinning as `running`).
+ */
 export interface ModelStep {
   kind: 'model';
   id: string;
   iteration: number;
-  status: 'running' | 'done';
+  status: 'running' | 'done' | 'error';
+  model?: string; // the model id this call used
+  request?: GeminiRequestSnapshot; // the exact payload sent (set from the first emit onward)
+  response?: GeminiPart[]; // raw response parts — set on a successful `done`
+  finishReason?: string; // candidates[0].finishReason when reported
   inputTokens?: number; // promptTokenCount — set once the call returns (absent while running)
   outputTokens?: number; // candidatesTokenCount
+  errorKind?: AssistantErrorKind; // set when status === 'error'
+  errorMessage?: string; // raw provider message when status === 'error'
+  startedAt?: string; // ISO timestamp when the call was sent
+  durationMs?: number; // wall-clock time of the round-trip, set on the terminal emit
 }
 
 /** A transient 5xx retry inside a single Gemini call (surfaced so the user sees the wait explained). */
@@ -44,6 +69,8 @@ export interface ToolStep {
   result?: unknown; // set once the tool returns
   ok?: boolean; // from toolResultOk()
   error?: string; // the { error } string when a tool fails
+  startedAt?: string; // ISO timestamp when the tool began
+  durationMs?: number; // wall-clock time of the tool execution, set on the terminal emit
 }
 
 /**
@@ -60,6 +87,8 @@ export interface ConfirmStep {
   destructive?: boolean; // a delete — rendered with the red treatment
   status: 'awaiting' | 'approved' | 'rejected';
   result?: unknown; // set once the mutation runs after approval
+  startedAt?: string; // ISO timestamp when the write was proposed
+  durationMs?: number; // wall-clock time from proposal to settled, set on the terminal emit
 }
 
 export type TraceStep = ModelStep | RetryStep | ToolStep | ConfirmStep;

@@ -83,8 +83,9 @@ export function shouldApplyRemote(
  *   1. PUSHED — `updatedAt <= pushCursor`: the deletion has already synced up, so the row will
  *      never be re-pulled (`pullTable` selects `updated_at > cursor`) and can't resurrect. A device
  *      that never synced has `pushCursor === EPOCH`, so nothing qualifies — safe by construction.
- *   2. AGED — `updatedAt < retentionCutoffIso` (now − retentionDays): a margin that keeps
- *      recently-deleted rows around briefly on top of the cursor rule.
+ *   2. AGED — `updatedAt < retentionCutoffIso` (now − retentionDays): an optional grace margin on
+ *      top of the cursor rule. It adds no safety (the cursor already prevents resurrection) and
+ *      defaults to 0 in `lib/purge.ts` (cutoff = now), so by default guard 1 is the only real gate.
  * ISO-8601 UTC strings compare lexicographically, so these are plain string comparisons.
  */
 export function isTombstonePurgeable(

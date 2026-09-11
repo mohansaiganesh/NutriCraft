@@ -1,14 +1,16 @@
 /**
- * Local tombstone purge — bounded, sync-safe hard-deletion of aged, already-synced soft-deleted
- * rows, so the on-device SQLite file stays tidy over years of logging. This is hygiene only: it
- * NEVER touches live rows or real history, and the server keeps its own tombstones (see the
- * "Server side" note in the plan / `lib/sync.ts`).
+ * Local tombstone purge — bounded, sync-safe hard-deletion of already-synced soft-deleted rows, so
+ * the on-device SQLite file stays tidy over years of logging. This is hygiene only: it NEVER touches
+ * live rows or real history, and the server keeps its own tombstones (see the "Server side" note in
+ * the plan / `lib/sync.ts`).
  *
  * Two independent safety layers gate every deletion:
- *   1. The pure predicate `isTombstonePurgeable` (`lib/syncCore.ts`): the row is `deleted`, its
+ *   1. The pure predicate `isTombstonePurgeable` (`lib/syncCore.ts`): the row is `deleted` and its
  *      deletion has been PUSHED (`updatedAt <= pushCursor`, read from the same durable cursor the
- *      sync engine advances), and it is AGED past the retention window. Below the cursor a row can
- *      never be re-pulled, so it can't resurrect; a never-synced device purges nothing.
+ *      sync engine advances). The push cursor is monotonic and pull only fetches rows ABOVE it, so
+ *      below the cursor a row can never be re-pulled — it can't resurrect; a never-synced device
+ *      purges nothing. (There's also a `retentionDays` grace window, but it defaults to 0 — the
+ *      push cursor is the real gate; grace adds no safety, only an optional recovery buffer.)
  *   2. Referential safety here (PRAGMA foreign_keys = ON): leaf tombstones (`daily_logs`,
  *      `meal_items`) are always FK-clear, but a `meals`/`food_items` tombstone is purged only when
  *      nothing physically references it. A soft-deleted-but-still-referenced food (the historical
@@ -19,7 +21,7 @@
 
 import { and, eq, inArray } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { dailyLogs, foodItems, mealItems, meals } from '@/db/schema';
+import { assistantTraces, dailyLogs, foodItems, mealItems, meals } from '@/db/schema';
 import { getCursor } from '@/lib/sync';
 import { isTombstonePurgeable } from '@/lib/syncCore';
 
@@ -32,17 +34,22 @@ export interface PurgeResult {
   dailyLogs: number;
   meals: number;
   foodItems: number;
+  assistantTraces: number;
 }
 
 export interface PurgeOptions {
-  /** Grace window: tombstones younger than this are kept regardless of sync state. Default 30. */
+  /**
+   * Optional grace window: an already-synced tombstone younger than this is kept. Default 0 —
+   * reclaim as soon as the deletion has been pushed. This is NOT a safety mechanism (the monotonic
+   * push cursor already prevents resurrection); it only exists as an optional recovery buffer.
+   */
   retentionDays?: number;
   /** Injectable clock for tests. */
   now?: Date;
 }
 
 /** Any table we purge exposes `id`, `userId`, `deleted`, `updatedAt`. */
-type PurgeTable = typeof dailyLogs | typeof mealItems | typeof meals | typeof foodItems;
+type PurgeTable = typeof dailyLogs | typeof mealItems | typeof meals | typeof foodItems | typeof assistantTraces;
 
 /** Ids of this user's tombstones in `table` that pass the pure purge predicate. */
 async function eligibleIds(
@@ -93,10 +100,10 @@ async function referencedBy(
  * rest (mirrors `syncNow`). Returns per-table deletion counts for logging.
  */
 export async function purgeTombstones(userId: string, opts: PurgeOptions = {}): Promise<PurgeResult> {
-  const retentionDays = opts.retentionDays ?? 30;
+  const retentionDays = opts.retentionDays ?? 0;
   const now = opts.now ?? new Date();
   const cutoffIso = new Date(now.getTime() - retentionDays * DAY_MS).toISOString();
-  const result: PurgeResult = { mealItems: 0, dailyLogs: 0, meals: 0, foodItems: 0 };
+  const result: PurgeResult = { mealItems: 0, dailyLogs: 0, meals: 0, foodItems: 0, assistantTraces: 0 };
 
   // 1. meal_items — leaf, always FK-clear.
   try {
@@ -134,6 +141,17 @@ export async function purgeTombstones(userId: string, opts: PurgeOptions = {}): 
     console.warn('[purge] food_items skipped this run', e);
   }
 
+  // 5. assistant_traces — leaf (nothing references it), purged as soon as the deletion has synced.
+  // Like daily_logs: always FK-clear.
+  try {
+    result.assistantTraces = await deleteByIds(
+      assistantTraces,
+      await eligibleIds(assistantTraces, 'assistant_traces', userId, cutoffIso)
+    );
+  } catch (e) {
+    console.warn('[purge] assistant_traces skipped this run', e);
+  }
+
   return result;
 }
 
@@ -154,7 +172,7 @@ export async function purgeTombstonesThrottled(userId: string, opts: PurgeOption
     if (Number.isFinite(last) && now - last < PURGE_INTERVAL_MS) return;
     await AsyncStorage.setItem(LAST_RUN_KEY(userId), String(now));
     const result = await purgeTombstones(userId, opts);
-    const total = result.mealItems + result.dailyLogs + result.meals + result.foodItems;
+    const total = result.mealItems + result.dailyLogs + result.meals + result.foodItems + result.assistantTraces;
     if (total > 0) console.log('[purge] removed tombstones', result);
   } catch (e) {
     console.warn('[purge] throttled run skipped', e);

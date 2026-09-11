@@ -1,7 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { and, eq, gt, isNull } from 'drizzle-orm';
 import { db } from '@/db/client';
-import { dailyLogs, foodItems, mealItems, meals, settings } from '@/db/schema';
+import { assistantTraces, dailyLogs, foodItems, mealItems, meals, settings } from '@/db/schema';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import {
   EPOCH,
@@ -107,6 +107,29 @@ const TABLES: SyncTable[] = [
       mealType: 'meal_type',
       foodItemId: 'food_item_id',
       grams: 'grams',
+      ...AUDIT,
+    },
+  },
+  {
+    remote: 'assistant_traces',
+    table: assistantTraces,
+    scoped: true,
+    fields: {
+      id: 'id',
+      userId: 'user_id',
+      question: 'question',
+      answer: 'answer',
+      status: 'status',
+      errorKind: 'error_kind',
+      stopReason: 'stop_reason',
+      model: 'model',
+      llmCalls: 'llm_calls',
+      toolCalls: 'tool_calls',
+      inputTokens: 'input_tokens',
+      outputTokens: 'output_tokens',
+      durationMs: 'duration_ms',
+      startedAt: 'started_at',
+      steps: 'steps',
       ...AUDIT,
     },
   },

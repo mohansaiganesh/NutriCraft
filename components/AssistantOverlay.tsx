@@ -21,7 +21,8 @@ import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-nati
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { router, type Href } from 'expo-router';
-import { IconCheck, IconChevronDown, IconChevronRight, IconMic, IconSparkles, IconTrash, IconX } from './icons';
+import { IconCheck, IconChevronDown, IconChevronRight, IconHistory, IconMic, IconSparkles, IconTrash, IconX } from './icons';
+import { DataBlock } from './assistant/DataBlock';
 import { settingsQuery } from '@/db/queries';
 import { useAssistant } from '@/lib/assistant/useAssistant';
 import { useVoiceInput } from '@/lib/assistant/useVoiceInput';
@@ -132,6 +133,11 @@ export function AssistantOverlay() {
     router.push('/(tabs)/settings');
   };
 
+  const goToHistory = () => {
+    setOpen(false);
+    router.push('/account/traces');
+  };
+
   // Follow a nav button on an answer bubble (e.g. "Open Foods catalog") — close the panel, then
   // navigate. Same close-then-push pattern as goToSettings; the target comes from NAV_TOOLS.
   const goTo = (pathname: string) => {
@@ -187,6 +193,14 @@ export function AssistantOverlay() {
                   <Text className="font-display-sb text-[17px] text-ink">Nico</Text>
                   <Text className="font-body text-[12px] text-ink3">Ask about your foods, meals & logs</Text>
                 </View>
+                <Pressable
+                  onPress={goToHistory}
+                  hitSlop={10}
+                  accessibilityLabel="Request history"
+                  className="w-9 h-9 rounded-full items-center justify-center active:opacity-60 mr-1"
+                >
+                  <IconHistory size={19} color="#5B6B5E" />
+                </Pressable>
                 {messages.length > 0 ? (
                   <Pressable
                     onPress={confirmClear}
@@ -861,19 +875,24 @@ function StepRow({ step }: { step: TraceStep }) {
 
   if (step.kind === 'model') {
     const running = step.status === 'running';
+    const errored = step.status === 'error';
     const hasTokens = step.inputTokens != null || step.outputTokens != null;
     return (
       <View className="flex-row items-center gap-2 py-1">
         <View className="w-[18px] items-center">
           {running ? (
             <ActivityIndicator size="small" color="#2F9E44" />
+          ) : errored ? (
+            <View className="w-[18px] h-[18px] rounded-full bg-[#FDECEC] items-center justify-center">
+              <IconX size={12} color="#E03131" />
+            </View>
           ) : (
             <IconSparkles size={14} color="#2F9E44" />
           )}
         </View>
-        <Text className="flex-1 font-body-md text-[12.5px] text-ink3">
+        <Text className={`flex-1 font-body-md text-[12.5px] ${errored ? 'text-over' : 'text-ink3'}`}>
           Gemini call {step.iteration + 1}
-          {running ? '…' : ''}
+          {running ? '…' : errored ? ' — failed' : ''}
         </Text>
         {hasTokens ? (
           <Text className="font-body-md text-[11px] text-ink3">
@@ -975,17 +994,6 @@ function StepRow({ step }: { step: TraceStep }) {
   );
 }
 
-/** A labelled monospace-ish block of JSON/text used inside an expanded tool step. */
-function DataBlock({ label, text, error = false }: { label: string; text: string; error?: boolean }) {
-  return (
-    <View>
-      <Text className="font-body-sb text-[10px] tracking-wide text-ink3 mb-0.5">{label.toUpperCase()}</Text>
-      <View className={`rounded-lg px-2.5 py-2 ${error ? 'bg-[#FDECEC]' : 'bg-[#EEF3EA]'}`}>
-        <Text className={`font-body-md text-[11.5px] leading-4 ${error ? 'text-over' : 'text-ink2'}`}>{text}</Text>
-      </View>
-    </View>
-  );
-}
 
 function NoKey({ onAdd }: { onAdd: () => void }) {
   return (

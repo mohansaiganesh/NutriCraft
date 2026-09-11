@@ -128,9 +128,38 @@ export const settings = sqliteTable('settings', {
   updatedAt: text('updated_at').notNull().default(nowIso),
 });
 
+/**
+ * One end-to-end trace per assistant (Nico) request: the question, the final answer/error, rolled-up
+ * usage, and the full ordered step list (every LLM call + tool call with inputs/outputs/params/timing)
+ * serialized as JSON in `steps`. Summary columns are denormalized so the history list never parses the
+ * blob. Syncable like the rest (soft-delete + updatedAt), scoped per user; pruned to the most recent N.
+ */
+export const assistantTraces = sqliteTable('assistant_traces', {
+  id: text('id').primaryKey(),
+  userId: text('user_id'),
+  question: text('question').notNull(),
+  answer: text('answer').notNull().default(''),
+  status: text('status').notNull().default('ok'), // 'ok' | 'error' | 'stopped_early'
+  errorKind: text('error_kind'), // AssistantErrorKind when status = 'error'
+  stopReason: text('stop_reason'), // StopReasonKind when status = 'stopped_early'
+  model: text('model').notNull().default(''),
+  llmCalls: integer('llm_calls').notNull().default(0),
+  toolCalls: integer('tool_calls').notNull().default(0),
+  inputTokens: integer('input_tokens').notNull().default(0),
+  outputTokens: integer('output_tokens').notNull().default(0),
+  durationMs: integer('duration_ms').notNull().default(0),
+  startedAt: text('started_at').notNull(), // ISO — when the request was sent
+  steps: text('steps').notNull().default('[]'), // JSON-serialized TraceStep[]
+  ...auditColumns,
+}, (t) => [
+  index('assistant_traces_user_updated').on(t.userId, t.updatedAt), // sync delta
+]);
+
 export type FoodItem = typeof foodItems.$inferSelect;
 export type NewFoodItem = typeof foodItems.$inferInsert;
 export type Meal = typeof meals.$inferSelect;
 export type MealItem = typeof mealItems.$inferSelect;
 export type DailyLog = typeof dailyLogs.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
+export type AssistantTrace = typeof assistantTraces.$inferSelect;
+export type NewAssistantTrace = typeof assistantTraces.$inferInsert;

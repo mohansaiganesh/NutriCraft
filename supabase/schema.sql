@@ -71,6 +71,32 @@ create index if not exists daily_logs_user_updated on public.daily_logs (user_id
 create index if not exists daily_logs_user_date on public.daily_logs (user_id, logged_date);
 create index if not exists daily_logs_food on public.daily_logs (food_item_id);
 
+-- End-to-end traces of the in-app assistant (Nico). One row per request: the question, the final
+-- answer/error, rolled-up usage, and the full ordered step list (every LLM + tool call with
+-- inputs/outputs/params/timing) serialized as JSON in `steps`. Private per user; pruned client-side to
+-- the most recent N via soft-delete, which syncs like any other tombstone.
+create table if not exists public.assistant_traces (
+  id            text primary key,
+  user_id       uuid not null references auth.users (id) on delete cascade,
+  question      text not null,
+  answer        text not null default '',
+  status        text not null default 'ok',     -- 'ok' | 'error' | 'stopped_early'
+  error_kind    text,
+  stop_reason   text,
+  model         text not null default '',
+  llm_calls     integer not null default 0,
+  tool_calls    integer not null default 0,
+  input_tokens  integer not null default 0,
+  output_tokens integer not null default 0,
+  duration_ms   integer not null default 0,
+  started_at    text not null,
+  steps         text not null default '[]',
+  created_at    text not null default (to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')),
+  updated_at    text not null default (to_char(now() at time zone 'utc', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"')),
+  deleted       boolean not null default false
+);
+create index if not exists assistant_traces_user_updated on public.assistant_traces (user_id, updated_at);
+
 -- One settings row per user, keyed by id = the user's auth id.
 create table if not exists public.settings (
   id                uuid primary key references auth.users (id) on delete cascade,

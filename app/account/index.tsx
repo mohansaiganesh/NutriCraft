@@ -6,7 +6,7 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { settingsQuery } from '@/db/queries';
 import { useSession } from '@/lib/session';
 import { Button, Card, DetailHeader, MenuRow, SectionLabel } from '@/components/ui';
-import { IconCloud, IconInfo, IconLock, IconTarget, IconUser } from '@/components/icons';
+import { IconCloud, IconHistory, IconInfo, IconLock, IconTarget, IconUser } from '@/components/icons';
 
 export default function AccountMenuScreen() {
   const { email, signOut } = useSession();
@@ -82,6 +82,13 @@ export default function AccountMenuScreen() {
               label="Data & sync"
               sublabel="Backup, restore, sync now"
               onPress={() => router.push('/account/data')}
+            />
+            <MenuRow
+              icon={IconHistory}
+              label="Request history"
+              sublabel="Inspect Nico's past requests"
+              onPress={() => router.push('/account/traces')}
+              divider
             />
             <MenuRow
               icon={IconInfo}

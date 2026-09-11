@@ -47,6 +47,16 @@ create policy daily_logs_insert on public.daily_logs
 create policy daily_logs_update on public.daily_logs
   for update using (user_id = auth.uid()) with check (user_id = auth.uid());
 
+-- ---------- assistant_traces ----------
+alter table public.assistant_traces enable row level security;
+
+create policy assistant_traces_select on public.assistant_traces
+  for select using (user_id = auth.uid());
+create policy assistant_traces_insert on public.assistant_traces
+  for insert with check (user_id = auth.uid());
+create policy assistant_traces_update on public.assistant_traces
+  for update using (user_id = auth.uid()) with check (user_id = auth.uid());
+
 -- ---------- settings ----------
 alter table public.settings enable row level security;
 

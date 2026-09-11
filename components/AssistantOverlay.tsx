@@ -20,7 +20,7 @@ import {
 import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { IconCheck, IconChevronDown, IconChevronRight, IconMic, IconSparkles, IconTrash, IconX } from './icons';
 import { settingsQuery } from '@/db/queries';
 import { useAssistant } from '@/lib/assistant/useAssistant';
@@ -132,6 +132,13 @@ export function AssistantOverlay() {
     router.push('/(tabs)/settings');
   };
 
+  // Follow a nav button on an answer bubble (e.g. "Open Foods catalog") — close the panel, then
+  // navigate. Same close-then-push pattern as goToSettings; the target comes from NAV_TOOLS.
+  const goTo = (pathname: string) => {
+    setOpen(false);
+    router.push(pathname as Href);
+  };
+
   const confirmClear = () => {
     Alert.alert('Clear conversation?', 'This erases the chat and what the assistant remembers.', [
       { text: 'Cancel', style: 'cancel' },
@@ -213,7 +220,7 @@ export function AssistantOverlay() {
                     {messages.length === 0 ? (
                       <Welcome onPick={submit} disabled={sending} />
                     ) : (
-                      messages.map((m) => <Bubble key={m.id} message={m} />)
+                      messages.map((m) => <Bubble key={m.id} message={m} onNavigate={goTo} />)
                     )}
                     {sending ? <ActivityTrace steps={trace} /> : null}
                     {pendingWrite ? (
@@ -357,7 +364,7 @@ function Welcome({ onPick, disabled }: { onPick: (t: string) => void; disabled: 
   );
 }
 
-function Bubble({ message }: { message: Message }) {
+function Bubble({ message, onNavigate }: { message: Message; onNavigate: (pathname: string) => void }) {
   const isUser = message.role === 'user';
   if (isUser) {
     return (
@@ -372,9 +379,28 @@ function Bubble({ message }: { message: Message }) {
   return (
     <View className="self-start w-[88%] rounded-3xl rounded-bl-lg px-4 py-[10px] border bg-card border-hair">
       <MarkdownText blocks={parseMarkdown(message.text)} />
+      {message.navigation ? (
+        <NavButton
+          label={message.navigation.label}
+          onPress={() => onNavigate(message.navigation!.pathname)}
+        />
+      ) : null}
       {message.stoppedEarly ? <StoppedEarlyNotice reason={message.stoppedEarly} /> : null}
       {hasTrace ? <StepsDisclosure steps={message.steps!} /> : null}
     </View>
+  );
+}
+
+/** Tappable handoff on an answer — closes the panel and opens a screen (e.g. the Foods catalog). */
+function NavButton({ label, onPress }: { label: string; onPress: () => void }) {
+  return (
+    <Pressable
+      onPress={onPress}
+      className="mt-2.5 self-start flex-row items-center gap-[5px] rounded-full bg-[#EEF6EC] border border-[#DCEAD4] px-[13px] py-[7px] active:opacity-80"
+    >
+      <Text className="text-[#1B7A32] font-body-b text-[13px]">{label}</Text>
+      <IconChevronRight size={15} color="#1B7A32" />
+    </Pressable>
   );
 }
 

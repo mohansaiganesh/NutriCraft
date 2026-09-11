@@ -10,7 +10,7 @@ import { getApiKey, hasApiKey } from './keyStore';
 import { getModel, setModel } from './modelStore';
 import { DEFAULT_MODEL } from './gemini';
 import { runAssistant } from './agent';
-import type { ChatTurn, ConfirmDecision, ConfirmRequest } from './agent';
+import type { ChatTurn, ConfirmDecision, ConfirmRequest, NavTarget } from './agent';
 import type { WriteEdit } from './tools';
 import type { AssistantErrorKind, StopReason, TraceStep } from './events';
 
@@ -25,6 +25,8 @@ export interface Message {
   errorDetail?: string;
   /** Set on a SUCCESSFUL answer that the loop cut short — shown as a note under the reply. */
   stoppedEarly?: StopReason;
+  /** A screen the answer offers to open — rendered as a tappable button under the reply. */
+  navigation?: NavTarget;
   /** The activity trace this answer/error was produced by, kept for the post-hoc disclosure. */
   steps?: TraceStep[];
 }
@@ -143,7 +145,7 @@ export function useAssistant() {
       setMessages((prev) => [
         ...prev,
         res.ok
-          ? { id: newId(), role: 'assistant', text: res.text, stoppedEarly: res.stoppedEarly, steps }
+          ? { id: newId(), role: 'assistant', text: res.text, stoppedEarly: res.stoppedEarly, navigation: res.navigation, steps }
           : {
               id: newId(),
               role: 'assistant',

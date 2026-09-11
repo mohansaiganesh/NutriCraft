@@ -198,9 +198,35 @@ async function listMealsWithTotals() {
 }
 
 async function searchFoods(args: { query: string }) {
-  const rows = await foodsQuery(args.query ?? '');
+  const q = (args.query ?? '').trim();
+  const rows = await foodsQuery(q);
+  const total = rows.length;
+  // Empty query = "list the catalog": return names only so the WHOLE list fits cheaply (a full
+  // per-100 block per row would blow the token budget on a large catalog). A term = "search":
+  // return the full nutrition, capped. Both always report `total`/`truncated` so the model never
+  // mistakes a capped slice for the entire catalog (and can point the user at open_food_catalog).
+  if (q === '') {
+    const cap = 200;
+    return {
+      mode: 'list' as const,
+      total,
+      returned: Math.min(total, cap),
+      truncated: total > cap,
+      foods: rows.slice(0, cap).map((f) => ({
+        id: f.id,
+        name: f.name,
+        brand: f.brand,
+        isCustom: f.isCustom,
+      })),
+    };
+  }
+  const cap = 25;
   return {
-    foods: rows.slice(0, 25).map((f) => ({
+    mode: 'search' as const,
+    total,
+    returned: Math.min(total, cap),
+    truncated: total > cap,
+    foods: rows.slice(0, cap).map((f) => ({
       id: f.id,
       name: f.name,
       brand: f.brand,
@@ -218,6 +244,16 @@ async function searchFoods(args: { query: string }) {
   };
 }
 
+/**
+ * Not a data question — a UI handoff. Returns the true catalog size so the model can state it; the
+ * navigation itself is performed by the app (the agent loop maps this tool to a NAV_TOOLS target,
+ * the overlay renders a button — see NAV_TOOLS below and agent.ts).
+ */
+async function openFoodCatalog() {
+  const rows = await foodsQuery('');
+  return { opened: true, total: rows.length };
+}
+
 // ------------------------------------------------------------------ registry + declarations
 
 type Tool = { run: (args: any) => Promise<unknown> };
@@ -232,6 +268,17 @@ export const TOOLS: Record<string, Tool> = {
   get_meal_breakdown: { run: getMealBreakdown },
   list_meals_with_totals: { run: listMealsWithTotals },
   search_foods: { run: searchFoods },
+  open_food_catalog: { run: openFoodCatalog },
+};
+
+/**
+ * Read tools that, beyond returning data, ask the app to NAVIGATE somewhere once they run. The agent
+ * loop looks a called tool up here and threads the target back to the UI (which renders a button —
+ * navigation is a deterministic app action, never driven by the model's prose). Data-driven so
+ * agent.ts hardcodes no tool names.
+ */
+export const NAV_TOOLS: Record<string, { pathname: string; label: string }> = {
+  open_food_catalog: { pathname: '/(tabs)/foods', label: 'Open Foods catalog' },
 };
 
 /** Run a tool by name; returns a JSON-serialisable result or an { error } object. */
@@ -306,12 +353,18 @@ export const FUNCTION_DECLARATIONS = [
   },
   {
     name: 'search_foods',
-    description: "Search the user's food catalog (their own + the shared catalog) by name. Returns per-100 g/ml nutrition and price for each match.",
+    description:
+      "Search the user's food catalog (their own + the shared catalog) by name. A search term returns per-100 g/ml nutrition and price for the matches (capped). An EMPTY string lists the catalog names only (no nutrition). Every result includes `total` (the true number of matching foods) and `truncated` (true when there are more than returned) — so state `total`, never the returned count, when saying how many foods there are. To let the user BROWSE or SEE their whole list, call open_food_catalog instead of listing rows here.",
     parameters: {
       type: 'OBJECT',
-      properties: { query: { ...STR, description: 'Text to match against food names. Empty string lists foods.' } },
+      properties: { query: { ...STR, description: 'Text to match against food names. Empty string lists the catalog (names only).' } },
       required: ['query'],
     },
+  },
+  {
+    name: 'open_food_catalog',
+    description:
+      "Open the Foods screen so the user can browse and search their COMPLETE food list. Use whenever the user wants to SEE, view, browse, or scroll through all their foods (e.g. 'show me all my foods', 'let me see my food list') rather than asking a specific question you can answer with search_foods. Returns the total number of foods — tell the user that count. The app shows the user a button that opens the catalog, so do NOT claim you have opened or navigated anywhere yourself.",
   },
 ];
 

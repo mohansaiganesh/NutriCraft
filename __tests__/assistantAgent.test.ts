@@ -47,6 +47,7 @@ jest.mock('@/lib/assistant/tools', () => ({
   }),
   executeWrite: jest.fn(async () => ({ logId: 'new-log' })),
   runTool: jest.fn(async () => ({})),
+  NAV_TOOLS: { open_food_catalog: { pathname: '/(tabs)/foods', label: 'Open Foods catalog' } },
 }));
 
 // Deterministic step ids keep the loop off any crypto/RN dependency.
@@ -225,6 +226,28 @@ describe('runAssistant: single confirmation for staged writes', () => {
     expect(res.ok).toBe(true);
     if (res.ok) expect(res.text).toBe('You ate 1,500 kcal today.');
     expect(onConfirm).not.toHaveBeenCalled();
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('surfaces a navigation target when a NAV_TOOLS read runs (the Foods handoff)', async () => {
+    mockCall
+      .mockResolvedValueOnce({ ok: true, parts: [{ functionCall: { name: 'open_food_catalog', args: {} } }] }) // request the handoff
+      .mockResolvedValueOnce(textRound('You have 140 foods.')); // terminal answer, no calls
+
+    const res = await runAssistant({
+      question: 'show me all my foods',
+      history: [],
+      apiKey: 'k',
+      model: 'gemini-3.6-flash',
+      onConfirm: jest.fn(async () => ({ kind: 'approve' as const })),
+    });
+
+    expect(res.ok).toBe(true);
+    // The answer carries the button target from NAV_TOOLS — the UI renders it; nothing was written.
+    if (res.ok) {
+      expect(res.text).toBe('You have 140 foods.');
+      expect(res.navigation).toEqual({ pathname: '/(tabs)/foods', label: 'Open Foods catalog' });
+    }
     expect(mockExecute).not.toHaveBeenCalled();
   });
 });

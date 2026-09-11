@@ -5,7 +5,7 @@
  */
 import { callGemini } from './gemini';
 import type { GeminiContent, GeminiPart, GeminiResult } from './gemini';
-import { describeWrite, executeWrite, isWriteTool, reviseWrite, runTool } from './tools';
+import { describeWrite, executeWrite, isWriteTool, NAV_TOOLS, reviseWrite, runTool } from './tools';
 import type { PendingWrite, WriteEdit } from './tools';
 import { newId } from '@/lib/id';
 import { todayISO } from '@/lib/format';
@@ -36,6 +36,7 @@ Rules:
 - Be concise, friendly and specific. Lead with the answer, round numbers sensibly, and add at most a short bit of context. If there is no data for the period, say so plainly.
 - Format replies as short plain prose. You may use **bold** for key numbers and simple "- " bullet lists when listing several items — keep formatting minimal. Do not use tables, headings, code blocks, or links.
 - You can log foods and add saved meals to a day using the write tools (log_food, update_log_entry, remove_log_entry, apply_meal_to_day). To log a specific food you must first find it with search_foods and use its id; to edit or remove an entry, first find it with list_day_logs and use its logId.
+- search_foods returns "total" (the true number of matching foods) and "truncated"; when saying how many foods the user has, use "total", never the count you were shown, and if truncated is true, say there are more and suggest opening the catalog. When the user wants to SEE or BROWSE their whole food list (not a specific question), call open_food_catalog: it returns the total to state, and the app shows a tappable button that opens the Foods screen — so tell them the count and that they can open their catalog, but do NOT claim you opened it or navigated anywhere yourself.
 - NEVER invent the details of a log. If the user didn't say HOW MUCH they ate (the grams/ml amount), ask them for it in one short plain-text question and do NOT call the write tool yet. You do NOT need to ask which meal — leave mealType off the tool call when they didn't say, and the app will ask them to pick. If the day isn't given, default to today. (Asking for a missing FACT like the amount is expected; it is NOT the same as asking permission to proceed, which you still must never do — see the next rule.)
 - Write tools do NOT take effect immediately. Each one returns { staged: true }, meaning the change is QUEUED — the app shows the user ONE confirmation covering ALL queued changes at the very end. So NEVER ask the user to confirm or approve a staged change in prose (no "please confirm", no "let me know if you'd like to proceed"), and NEVER claim a change is done, logged, changed, or removed while you are still staging.
 - Propose every change the user asked for (call the matching write tool once per change; you may include several in a single turn). When every requested change is staged, STOP calling tools and reply with ONE short present-tense sentence naming everything you are about to log (e.g. "I'll add 45 g of dates, 100 g of rice and 150 g of chicken."). Only name the meal in that sentence if the user actually told you which one. When you are then told the changes were applied, reply with a brief PAST-TENSE confirmation of what was logged (e.g. "Added dates, rice and chicken."). If you are told the user declined, say nothing was changed and offer to adjust — do not silently retry.
@@ -54,8 +55,16 @@ export interface AssistantError {
   iteration: number; // 0-based loop index the failure happened on
 }
 
+/** A screen the app should offer to open once the answer is shown — surfaced as a tappable button
+ * in the reply (see NAV_TOOLS in tools.ts). Navigation is a deterministic app action, not the
+ * model's prose. */
+export interface NavTarget {
+  pathname: string;
+  label: string;
+}
+
 export type AssistantResult =
-  | { ok: true; text: string; stoppedEarly?: StopReason } // stoppedEarly set on an early exit that still had partial text
+  | { ok: true; text: string; stoppedEarly?: StopReason; navigation?: NavTarget } // stoppedEarly set on an early exit that still had partial text
   | { ok: false; error: AssistantError };
 
 /** One validated write inside a confirmation batch. */
@@ -141,6 +150,7 @@ export async function runAssistant(opts: {
   let toolCallsUsed = 0; // cumulative tool executions this run
   let stalledRounds = 0; // consecutive rounds that requested only already-seen calls
   let lastText = ''; // best plain text the model has produced so far (shown if we exit early)
+  let navigationIntent: NavTarget | undefined; // set when a NAV_TOOLS read runs → button in the reply
 
   // Writes proposed this run. They are NOT executed inline: each is validated + staged here, and the
   // whole batch is confirmed ONCE at the end (see confirmStaged) — so the user sees a single card no
@@ -154,7 +164,7 @@ export async function runAssistant(opts: {
    */
   const finishEarly = (kind: StopReasonKind, detail: string, iteration: number): AssistantResult => {
     if (__DEV__) console.warn('[assistant] stopped early', { kind, detail, iteration });
-    if (lastText) return { ok: true, text: lastText, stoppedEarly: describeStop(kind, detail) };
+    if (lastText) return { ok: true, text: lastText, stoppedEarly: describeStop(kind, detail), navigation: navigationIntent };
     return fail('iteration_limit', detail, iteration);
   };
 
@@ -312,7 +322,7 @@ export async function runAssistant(opts: {
       // The model is done. If it staged any writes, confirm them all at once now; otherwise this is
       // a plain answer.
       if (staged.length > 0) return confirmStaged();
-      return { ok: true, text: roundText || lastText || "I couldn't find an answer to that." };
+      return { ok: true, text: roundText || lastText || "I couldn't find an answer to that.", navigation: navigationIntent };
     }
 
     // Stall detection: if EVERY call this round repeats one we already ran, the model is looping and
@@ -343,6 +353,13 @@ export async function runAssistant(opts: {
       const result = isWriteTool(name)
         ? await stageWrite(name, label, stepId, args)
         : await handleRead(name, label, stepId, args);
+
+      // A read tool may also request a navigation (e.g. open_food_catalog) — thread its target to
+      // the UI, but only if it actually succeeded. NAV_TOOLS?.[] guards against a test mock that
+      // omits the export.
+      if (!isWriteTool(name) && toolResultOk(result) && NAV_TOOLS?.[name]) {
+        navigationIntent = NAV_TOOLS[name];
+      }
 
       responseParts.push({
         functionResponse: {

@@ -172,6 +172,7 @@ const TOOL_LABELS: Record<string, string> = {
   get_meal_breakdown: 'Breaking down a meal',
   list_meals_with_totals: 'Totalling your meals',
   search_foods: 'Searching foods',
+  open_food_catalog: 'Opening your foods',
   // Write tools (each runs only after the user confirms the card).
   log_food: 'Logging a food',
   update_log_entry: 'Editing a log entry',

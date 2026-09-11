@@ -17,7 +17,18 @@ import {
   useWindowDimensions,
   View,
 } from 'react-native';
-import Animated, { FadeIn, FadeOut, SlideInDown, SlideOutDown } from 'react-native-reanimated';
+import Animated, {
+  FadeIn,
+  FadeOut,
+  SlideInDown,
+  SlideOutDown,
+  runOnJS,
+  useAnimatedStyle,
+  useSharedValue,
+  withSpring,
+} from 'react-native-reanimated';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import type { EdgeInsets } from 'react-native-safe-area-context';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { router, type Href } from 'expo-router';
@@ -25,6 +36,8 @@ import { IconCheck, IconChevronDown, IconChevronRight, IconHistory, IconMic, Ico
 import { DataBlock } from './assistant/DataBlock';
 import { settingsQuery } from '@/db/queries';
 import { useAssistant } from '@/lib/assistant/useAssistant';
+import { useSession } from '@/lib/session';
+import { getFabCorner, setFabCorner, DEFAULT_CORNER, type Corner } from '@/lib/assistant/fabPositionStore';
 import { useVoiceInput } from '@/lib/assistant/useVoiceInput';
 import type { Message } from '@/lib/assistant/useAssistant';
 import type { ConfirmRequest } from '@/lib/assistant/agent';
@@ -39,6 +52,31 @@ import type { MdBlock, MdSpan } from '@/lib/assistant/markdown';
 
 const TAB_BAR_HEIGHT = 56; // matches app/(tabs)/_layout.tsx
 const STARTERS = ['Calories this week', 'Most expensive meal', 'Am I over target today?'];
+
+// The floating bubble is draggable and snaps to a corner. FAB_SIZE/MARGIN drive both the resting
+// coordinates and the nearest-corner math.
+const FAB_SIZE = 68;
+const FAB_MARGIN = 20;
+
+/**
+ * Absolute top-left coordinates the bubble rests at for a given corner, in screen space.
+ * Bottom corners preserve the original resting spot exactly (clearing the tab bar); top corners
+ * clear the status bar / notch via the top inset.
+ */
+function cornerCoords(
+  corner: Corner,
+  screenW: number,
+  screenH: number,
+  insets: EdgeInsets,
+): { x: number; y: number } {
+  'worklet'; // callable from the pan gesture worklet (UI thread) as well as from JS effects
+  const left = corner === 'top-left' || corner === 'bottom-left';
+  const top = corner === 'top-left' || corner === 'top-right';
+  return {
+    x: left ? FAB_MARGIN : screenW - FAB_MARGIN - FAB_SIZE,
+    y: top ? insets.top + 16 : screenH - (TAB_BAR_HEIGHT + insets.bottom + 16) - FAB_SIZE,
+  };
+}
 
 const fabShadow = {
   shadowColor: '#2F9E44',
@@ -59,7 +97,8 @@ const menuShadow = {
 
 export function AssistantOverlay() {
   const insets = useSafeAreaInsets();
-  const { height: screenH } = useWindowDimensions();
+  const { width: screenW, height: screenH } = useWindowDimensions();
+  const { userId } = useSession();
   const [open, setOpen] = useState(false);
   const [kbInset, setKbInset] = useState(0);
   const [draft, setDraft] = useState('');
@@ -71,6 +110,77 @@ export function AssistantOverlay() {
   const voice = useVoiceInput({ onTranscript: setDraft });
   const scrollRef = useRef<ScrollView>(null);
   const activeModelLabel = AVAILABLE_MODELS.find((m) => m.id === model)?.label ?? model;
+
+  // --- Draggable bubble --------------------------------------------------------------------------
+  // The bubble can be dragged and snaps to the nearest corner on release; the chosen corner is
+  // remembered per user (device-local). The expanded sheet is a full-width bottom sheet and is
+  // deliberately independent of the bubble's corner — it never follows the button.
+  const [corner, setCorner] = useState<Corner>(DEFAULT_CORNER);
+  const dragging = useSharedValue(false);
+  const startXY = useSharedValue({ x: 0, y: 0 });
+  const initial = cornerCoords(DEFAULT_CORNER, screenW, screenH, insets);
+  const x = useSharedValue(initial.x);
+  const y = useSharedValue(initial.y);
+
+  // Load the persisted corner once a user is active.
+  useEffect(() => {
+    if (!userId) return;
+    let active = true;
+    getFabCorner(userId).then((c) => {
+      if (active) setCorner(c);
+    });
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  // Keep the bubble parked on its corner as the corner or the screen geometry changes (rotation,
+  // safe-area changes). Don't fight an in-progress drag.
+  useEffect(() => {
+    if (dragging.value) return;
+    const { x: tx, y: ty } = cornerCoords(corner, screenW, screenH, insets);
+    x.value = withSpring(tx, { damping: 18, stiffness: 200 });
+    y.value = withSpring(ty, { damping: 18, stiffness: 200 });
+  }, [corner, screenW, screenH, insets.top, insets.bottom]);
+
+  const applyCorner = (next: Corner) => {
+    setCorner(next);
+    if (userId) setFabCorner(userId, next);
+  };
+
+  const panGesture = Gesture.Pan()
+    .minDistance(6) // a stationary press falls through to the tap gesture → opens the assistant
+    .onStart(() => {
+      dragging.value = true;
+      startXY.value = { x: x.value, y: y.value };
+    })
+    .onUpdate((e) => {
+      x.value = startXY.value.x + e.translationX;
+      y.value = startXY.value.y + e.translationY;
+    })
+    .onEnd(() => {
+      const centerX = x.value + FAB_SIZE / 2;
+      const centerY = y.value + FAB_SIZE / 2;
+      const left = centerX < screenW / 2;
+      const top = centerY < screenH / 2;
+      const next: Corner = top
+        ? left
+          ? 'top-left'
+          : 'top-right'
+        : left
+          ? 'bottom-left'
+          : 'bottom-right';
+      const { x: tx, y: ty } = cornerCoords(next, screenW, screenH, insets);
+      x.value = withSpring(tx, { damping: 18, stiffness: 200 });
+      y.value = withSpring(ty, { damping: 18, stiffness: 200 });
+      dragging.value = false;
+      runOnJS(applyCorner)(next);
+    });
+
+  const tapGesture = Gesture.Tap().onEnd(() => runOnJS(setOpen)(true));
+  const fabGesture = Gesture.Exclusive(panGesture, tapGesture);
+
+  const fabAnimatedStyle = useAnimatedStyle(() => ({ left: x.value, top: y.value }));
 
   // Re-check the stored key each time the panel opens (the user may have just added it).
   useEffect(() => {
@@ -154,15 +264,18 @@ export function AssistantOverlay() {
 
   return (
     <>
-      {/* Floating entry point — clears the tab bar so it never collides with per-screen FABs. */}
-      <Pressable
-        onPress={() => setOpen(true)}
-        accessibilityLabel="Open the nutrition assistant"
-        className="absolute w-[68px] h-[68px] rounded-full overflow-hidden items-center justify-center active:opacity-90"
-        style={[{ right: 20, bottom: TAB_BAR_HEIGHT + insets.bottom + 16 }, fabShadow]}
-      >
-        <Image source={require('../assets/assistant-avatar.png')} style={{ width: 68, height: 68 }} />
-      </Pressable>
+      {/* Floating entry point — drag it to any corner (snaps on release), tap to open. Rests clear
+          of the tab bar / status bar so it never collides with per-screen FABs or the notch. */}
+      <GestureDetector gesture={fabGesture}>
+        <Animated.View
+          accessibilityLabel="Open the nutrition assistant"
+          accessibilityRole="button"
+          className="absolute w-[68px] h-[68px] rounded-full overflow-hidden items-center justify-center"
+          style={[fabAnimatedStyle, fabShadow]}
+        >
+          <Image source={require('../assets/assistant-avatar.png')} style={{ width: 68, height: 68 }} />
+        </Animated.View>
+      </GestureDetector>
 
       {open ? (
         <Animated.View

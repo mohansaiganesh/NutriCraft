@@ -24,6 +24,7 @@ import {
   settingsQuery,
   updateLog,
 } from '@/db/queries';
+import { matchFoods } from '@/lib/foodMatch';
 import { nutritionFor, roundTotals, sumNutrition } from '@/lib/nutrition';
 import type { NutritionTotals, PerHundredBasis } from '@/lib/nutrition';
 import { getCurrentUserId } from '@/lib/currentUser';
@@ -199,14 +200,18 @@ async function listMealsWithTotals() {
 
 async function searchFoods(args: { query: string }) {
   const q = (args.query ?? '').trim();
-  const rows = await foodsQuery(q);
-  const total = rows.length;
+  // Fetch the whole owned+shared catalog and match in JS (see lib/foodMatch): a raw SQL LIKE only
+  // matches an identical character run, so "sunflower seeds" would miss a food stored as
+  // "sunflowerSeeds". matchFoods normalizes spacing/case/punctuation/word-order so the model never
+  // has to guess the exact stored spelling.
+  const rows = await foodsQuery('');
   // Empty query = "list the catalog": return names only so the WHOLE list fits cheaply (a full
   // per-100 block per row would blow the token budget on a large catalog). A term = "search":
   // return the full nutrition, capped. Both always report `total`/`truncated` so the model never
   // mistakes a capped slice for the entire catalog (and can point the user at open_food_catalog).
   if (q === '') {
     const cap = 200;
+    const total = rows.length;
     return {
       mode: 'list' as const,
       total,
@@ -221,12 +226,14 @@ async function searchFoods(args: { query: string }) {
     };
   }
   const cap = 25;
+  const matched = matchFoods(q, rows);
+  const total = matched.length;
   return {
     mode: 'search' as const,
     total,
     returned: Math.min(total, cap),
     truncated: total > cap,
-    foods: rows.slice(0, cap).map((f) => ({
+    foods: matched.slice(0, cap).map((f) => ({
       id: f.id,
       name: f.name,
       brand: f.brand,
@@ -354,10 +361,10 @@ export const FUNCTION_DECLARATIONS = [
   {
     name: 'search_foods',
     description:
-      "Search the user's food catalog (their own + the shared catalog) by name. A search term returns per-100 g/ml nutrition and price for the matches (capped). An EMPTY string lists the catalog names only (no nutrition). Every result includes `total` (the true number of matching foods) and `truncated` (true when there are more than returned) — so state `total`, never the returned count, when saying how many foods there are. To let the user BROWSE or SEE their whole list, call open_food_catalog instead of listing rows here.",
+      "Search the user's food catalog (their own + the shared catalog) by name or brand. Matching is tolerant — it ignores spacing, casing, punctuation and word order (so 'sunflower seeds' finds a food stored as 'sunflowerSeeds'), so use the user's natural wording and do NOT retry with alternate spellings if nothing comes back. A search term returns per-100 g/ml nutrition and price for the matches (capped). An EMPTY string lists the catalog names only (no nutrition). Every result includes `total` (the true number of matching foods) and `truncated` (true when there are more than returned) — so state `total`, never the returned count, when saying how many foods there are. To let the user BROWSE or SEE their whole list, call open_food_catalog instead of listing rows here.",
     parameters: {
       type: 'OBJECT',
-      properties: { query: { ...STR, description: 'Text to match against food names. Empty string lists the catalog (names only).' } },
+      properties: { query: { ...STR, description: 'Text to match against food names/brands (spacing, case, punctuation and word order are ignored). Empty string lists the catalog (names only).' } },
       required: ['query'],
     },
   },

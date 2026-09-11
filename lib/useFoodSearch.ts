@@ -10,6 +10,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { foodsQuery } from '@/db/queries';
+import { matchFoods } from '@/lib/foodMatch';
 import { FOOD_SOURCES, type RemoteFood } from '@/lib/foodSearch';
 import type { FoodItem } from '@/db/schema';
 
@@ -40,8 +41,14 @@ interface RemoteState {
 const IDLE: RemoteState = { foods: [], status: 'idle', failedSources: [] };
 
 export function useFoodSearch(query: string): FoodSearchResult {
-  const { data } = useLiveQuery(foodsQuery(query), [query]);
-  const localFoods = (data ?? []) as FoodItem[];
+  // Fetch the full owned+shared catalog reactively and match in JS (see lib/foodMatch): a raw SQL
+  // LIKE only matches an identical character run, so "sunflower seeds" would miss "sunflowerSeeds".
+  // matchFoods normalizes spacing/case/punctuation/word-order and ranks best match first.
+  const { data } = useLiveQuery(foodsQuery(''));
+  const localFoods = useMemo<FoodItem[]>(() => {
+    const all = (data ?? []) as FoodItem[];
+    return query.trim() ? matchFoods(query, all) : all;
+  }, [data, query]);
 
   const [remote, setRemote] = useState<RemoteState>(IDLE);
   const controllerRef = useRef<AbortController | null>(null);

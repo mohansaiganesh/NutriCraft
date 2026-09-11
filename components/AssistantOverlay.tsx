@@ -57,11 +57,18 @@ const STARTERS = ['Calories this week', 'Most expensive meal', 'Am I over target
 // coordinates and the nearest-corner math.
 const FAB_SIZE = 68;
 const FAB_MARGIN = 20;
+// Height of the app header bar below the safe-area inset (the AppHeader title/account row in
+// components/ui.tsx: ~8px top padding + a 34px title + 16px bottom margin). A top-resting bubble
+// lands just under it.
+const HEADER_HEIGHT = 64;
+// Small downward nudge so a bottom-resting bubble tucks right up against the tab bar (closes the
+// hairline gap left by the avatar's transparent ring).
+const FOOTER_NUDGE = 20;
 
 /**
  * Absolute top-left coordinates the bubble rests at for a given corner, in screen space.
- * Bottom corners preserve the original resting spot exactly (clearing the tab bar); top corners
- * clear the status bar / notch via the top inset.
+ * The bubble parks flush inside the content area with no vertical padding: top corners sit just
+ * below the app header bar, bottom corners sit right above the tab bar (footer).
  */
 function cornerCoords(
   corner: Corner,
@@ -74,7 +81,9 @@ function cornerCoords(
   const top = corner === 'top-left' || corner === 'top-right';
   return {
     x: left ? FAB_MARGIN : screenW - FAB_MARGIN - FAB_SIZE,
-    y: top ? insets.top + 16 : screenH - (TAB_BAR_HEIGHT + insets.bottom + 16) - FAB_SIZE,
+    y: top
+      ? insets.top + HEADER_HEIGHT
+      : screenH - (TAB_BAR_HEIGHT + insets.bottom) - FAB_SIZE + FOOTER_NUDGE,
   };
 }
 

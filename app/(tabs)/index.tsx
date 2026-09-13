@@ -7,7 +7,7 @@ import { dayLogsQuery, removeLog, settingsQuery, updateLog } from '@/db/queries'
 import { nutritionFor, sumNutrition, type NutritionTotals } from '@/lib/nutrition';
 import { dateLabel, fmt, titleCase, todayISO } from '@/lib/format';
 import { MEAL_TYPES, type MealType } from '@/constants/meals';
-import { AccountButton, Card, Muted } from '@/components/ui';
+import { Card, Muted } from '@/components/ui';
 import { GramStepper } from '@/components/GramStepper';
 import { CalendarField } from '@/components/CalendarField';
 import { IconChevronDown, IconChevronRight, IconPlus, IconTrash, MealIcon } from '@/components/icons';
@@ -79,7 +79,6 @@ export default function TodayScreen() {
           {/* Date navigator */}
           <View className="flex-row items-center justify-between mt-2 mb-4">
             <CalendarField value={date} onChange={setDate} className="py-[5px]" textClassName="font-body-b text-[14px]" />
-            <AccountButton />
           </View>
 
           {/* Calorie-ring hero — fills remaining space, content scaled to fit */}

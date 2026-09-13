@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
-import { IconChevronLeft, IconChevronRight, IconPlus, IconUser } from './icons';
+import { IconChevronLeft, IconChevronRight, IconPlus } from './icons';
 
 /** Soft card elevation shared by every raised surface. */
 export const cardShadow = {
@@ -93,18 +93,6 @@ export function AppHeader({
   );
 }
 
-/** Round account button that opens the account screen — shared across every tab's top-right. */
-export function AccountButton() {
-  return (
-    <Pressable
-      onPress={() => router.push('/account')}
-      className="w-[42px] h-[42px] rounded-full bg-card border border-hair items-center justify-center active:opacity-80"
-    >
-      <IconUser size={20} color="#3A4A3D" />
-    </Pressable>
-  );
-}
-
 /** Round green add button for a page header's top-right — primary "new entry" action. */
 export function HeaderAddButton({ onPress }: { onPress: () => void }) {
   return (
@@ -119,21 +107,36 @@ export function HeaderAddButton({ onPress }: { onPress: () => void }) {
 }
 
 /** In-screen header for detail/form screens — back button + title, safe-area aware. */
-export function DetailHeader({ title, right, onBack }: { title: string; right?: ReactNode; onBack?: () => void }) {
+export function DetailHeader({
+  title,
+  right,
+  onBack,
+  showBack = true,
+}: {
+  title: string;
+  right?: ReactNode;
+  onBack?: () => void;
+  showBack?: boolean;
+}) {
   const insets = useSafeAreaInsets();
   return (
     <View
       style={{ paddingTop: insets.top + 6 }}
       className="px-4 pb-3 bg-paper flex-row items-center"
     >
-      <Pressable
-        onPress={onBack ?? (() => router.back())}
-        className="w-10 h-10 -ml-2 rounded-full items-center justify-center active:opacity-60"
-        hitSlop={8}
+      {showBack ? (
+        <Pressable
+          onPress={onBack ?? (() => router.back())}
+          className="w-10 h-10 -ml-2 rounded-full items-center justify-center active:opacity-60"
+          hitSlop={8}
+        >
+          <IconChevronLeft size={24} color="#16241A" />
+        </Pressable>
+      ) : null}
+      <Text
+        className={`font-display text-[22px] text-ink flex-1 ${showBack ? 'ml-1' : ''}`}
+        numberOfLines={1}
       >
-        <IconChevronLeft size={24} color="#16241A" />
-      </Pressable>
-      <Text className="font-display text-[22px] text-ink flex-1 ml-1" numberOfLines={1}>
         {title}
       </Text>
       {right}

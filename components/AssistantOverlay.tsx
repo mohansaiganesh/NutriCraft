@@ -249,12 +249,12 @@ export function AssistantOverlay() {
 
   const goToSettings = () => {
     setOpen(false);
-    router.push('/(tabs)/settings');
+    router.push('/(tabs)/account/preferences');
   };
 
   const goToHistory = () => {
     setOpen(false);
-    router.push('/account/traces');
+    router.push('/(tabs)/account/traces');
   };
 
   // Follow a nav button on an answer bubble (e.g. "Open Foods catalog") — close the panel, then

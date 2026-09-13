@@ -4,7 +4,7 @@ import { router } from 'expo-router';
 import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { settingsQuery } from '@/db/queries';
 import { useFoodSearch } from '@/lib/useFoodSearch';
-import { AccountButton, AppHeader, cardShadow, EmptyState, Field, HeaderAddButton, Muted } from '@/components/ui';
+import { AppHeader, cardShadow, EmptyState, Field, HeaderAddButton, Muted } from '@/components/ui';
 import { IconChevronRight, IconPencil } from '@/components/icons';
 import { Cost } from '@/components/nutrition';
 import { nutritionFor } from '@/lib/nutrition';
@@ -116,7 +116,6 @@ export default function FoodsScreen() {
               onPress={() => router.push({ pathname: '/food/[id]', params: { id: 'new' } })}
             />
           }
-          right={<AccountButton />}
         />
         <Field
           placeholder="Search foods…"

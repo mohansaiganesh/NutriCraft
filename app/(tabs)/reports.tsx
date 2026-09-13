@@ -38,7 +38,7 @@ import {
 import { buildReportHtml, type ReportData, type LeaderBar } from '@/lib/reportHtml';
 import { addDaysISO, fmt, money, todayISO } from '@/lib/format';
 import { MEAL_TYPES } from '@/constants/meals';
-import { AccountButton, AppHeader, Card, Muted } from '@/components/ui';
+import { AppHeader, Card, Muted } from '@/components/ui';
 import { CalendarField } from '@/components/CalendarField';
 import { IconShare } from '@/components/icons';
 import { BarChart, DonutChart, HBarLeaderboard, LineChart, type LeaderRow } from '@/components/charts';
@@ -384,7 +384,6 @@ export default function ReportsScreen() {
             >
               <IconShare size={19} color="#3A4A3D" />
             </Pressable>
-            <AccountButton />
           </View>
         }
       />

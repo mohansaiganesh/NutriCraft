@@ -53,7 +53,6 @@ function AppStack() {
         <Stack.Screen name="food/[id]" options={{ presentation: 'modal' }} />
         <Stack.Screen name="meal/[id]" />
         <Stack.Screen name="pick-food" options={{ presentation: 'modal' }} />
-        <Stack.Screen name="account" options={{ presentation: 'modal' }} />
       </Stack>
       <AssistantOverlay />
     </View>

@@ -28,7 +28,7 @@ export default function AccountMenuScreen() {
 
   return (
     <View className="flex-1 bg-paper">
-      <DetailHeader title="Account" />
+      <DetailHeader title="Account" showBack={false} />
       <ScrollView contentContainerClassName="px-4 pb-16 gap-[18px]">
         {/* Profile summary */}
         <Card className="flex-row items-center gap-[14px]">
@@ -55,20 +55,20 @@ export default function AccountMenuScreen() {
               icon={IconUser}
               label="Profile"
               sublabel="Name, age, country, phone"
-              onPress={() => router.push('/account/profile')}
+              onPress={() => router.push('/(tabs)/account/profile')}
             />
             <MenuRow
               icon={IconLock}
               label="Security & login"
               sublabel="Password, email, delete account"
-              onPress={() => router.push('/account/security')}
+              onPress={() => router.push('/(tabs)/account/security')}
               divider
             />
             <MenuRow
               icon={IconTarget}
               label="Preferences"
               sublabel="Daily targets & assistant"
-              onPress={() => router.dismissTo('/(tabs)/settings')}
+              onPress={() => router.push('/(tabs)/account/preferences')}
               divider
             />
           </Card>
@@ -81,20 +81,20 @@ export default function AccountMenuScreen() {
               icon={IconCloud}
               label="Data & sync"
               sublabel="Backup, restore, sync now"
-              onPress={() => router.push('/account/data')}
+              onPress={() => router.push('/(tabs)/account/data')}
             />
             <MenuRow
               icon={IconHistory}
               label="Request history"
               sublabel="Inspect Nico's past requests"
-              onPress={() => router.push('/account/traces')}
+              onPress={() => router.push('/(tabs)/account/traces')}
               divider
             />
             <MenuRow
               icon={IconInfo}
               label="About"
               sublabel="Version & legal"
-              onPress={() => router.push('/account/about')}
+              onPress={() => router.push('/(tabs)/account/about')}
               divider
             />
           </Card>

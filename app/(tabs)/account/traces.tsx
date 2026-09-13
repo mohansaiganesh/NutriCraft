@@ -64,7 +64,7 @@ function TraceCard({ row, onDelete }: { row: TraceRow; onDelete: (row: TraceRow)
     .join(' · ');
   return (
     <Pressable
-      onPress={() => router.push({ pathname: '/account/trace/[id]', params: { id: row.id } })}
+      onPress={() => router.push({ pathname: '/(tabs)/account/trace/[id]', params: { id: row.id } })}
       className="active:opacity-70"
     >
       <Card className="gap-1.5">

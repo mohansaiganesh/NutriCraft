@@ -1,6 +1,6 @@
 import { Tabs } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { IconCatalog, IconTarget, IconBowl, IconHome, IconChart } from '@/components/icons';
+import { IconCatalog, IconUser, IconBowl, IconHome, IconChart } from '@/components/icons';
 
 export default function TabsLayout() {
   const insets = useSafeAreaInsets();
@@ -45,8 +45,8 @@ export default function TabsLayout() {
         options={{ title: 'Reports', tabBarIcon: ({ color }) => <IconChart size={22} color={color} /> }}
       />
       <Tabs.Screen
-        name="settings"
-        options={{ title: 'Preferences', tabBarIcon: ({ color }) => <IconTarget size={22} color={color} /> }}
+        name="account"
+        options={{ title: 'Account', tabBarIcon: ({ color }) => <IconUser size={22} color={color} /> }}
       />
     </Tabs>
   );

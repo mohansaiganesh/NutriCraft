@@ -90,14 +90,15 @@ replace the placeholder package `com.anonymous.nutricraft`.
   cloud sync — every table uses UUID keys, UTC timestamps, and `updated_at` +
   `deleted` soft-delete columns for future reconciliation.
 - **Navigation:** Expo Router (`app/`), file-based, with a bottom tab bar
-  (Today / Foods / Meals / Reports / Settings) plus a stacked `app/account/` area.
+  (Today / Foods / Meals / Reports / Account); the Account tab holds a stacked
+  `app/(tabs)/account/` area (profile, security, preferences, data, traces).
 - **Styling:** NativeWind (Tailwind).
 - **Reactive data:** Drizzle `useLiveQuery` (SQLite change listener) — screens update
   automatically on writes.
 - **AI assistant (Nico):** an in-app assistant (Google Gemini) that can log foods and apply
   saved meals to a day, each behind a confirmation card. It's mounted globally
   (`components/AssistantOverlay.tsx`), supports voice dictation into its composer, and calls the
-  same `db/queries.ts` mutations screens use. Bring your own Gemini API key in Settings; see
+  same `db/queries.ts` mutations screens use. Bring your own Gemini API key in Account → Preferences; see
   `lib/assistant/`. Every run is recorded to the syncable `assistant_traces` table, inspectable
   under the account area.
 - **Accounts & cloud sync (required):** the app runs behind an email/password login — the
@@ -144,9 +145,9 @@ show, with a quiet "unavailable" note. OFF needs no key; USDA needs a free
 | Meal templates           | `app/(tabs)/meals.tsx`, `app/meal/[id].tsx`          |
 | Reports & charts         | `app/(tabs)/reports.tsx`, `lib/reports.ts`, `lib/reportHtml.ts`, `components/charts.tsx` |
 | AI assistant (Nico)      | `lib/assistant/`, `components/AssistantOverlay.tsx`  |
-| Account area             | `app/account/` (profile, security, data, traces)    |
+| Account area             | `app/(tabs)/account/` (profile, security, preferences, data, traces) |
 | Auth & cloud sync        | `lib/session.tsx`, `lib/sync.ts`, `supabase/`        |
-| Settings / targets       | `app/(tabs)/settings.tsx`                             |
+| Settings / targets       | `app/(tabs)/account/preferences.tsx`                  |
 
 ### Routing conventions
 

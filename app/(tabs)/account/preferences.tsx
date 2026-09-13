@@ -5,7 +5,7 @@ import { settingsQuery, updateSettings } from '@/db/queries';
 import { num } from '@/lib/format';
 import { useSession } from '@/lib/session';
 import { clearApiKey, hasApiKey, setApiKey } from '@/lib/assistant/keyStore';
-import { AccountButton, AppHeader, Button, Card, Field, Muted } from '@/components/ui';
+import { Button, Card, DetailHeader, Field, Muted } from '@/components/ui';
 import { IconCheck } from '@/components/icons';
 
 function CardTitle({ children }: { children: React.ReactNode }) {
@@ -122,7 +122,7 @@ function AiAssistantCard() {
   );
 }
 
-export default function SettingsScreen() {
+export default function PreferencesScreen() {
   const { data } = useLiveQuery(settingsQuery());
   const settings = data?.[0];
 
@@ -207,39 +207,40 @@ export default function SettingsScreen() {
   };
 
   return (
-    <ScrollView className="flex-1 bg-paper" contentContainerClassName="px-4 pb-16 gap-[14px]">
-      <AppHeader kicker="Nutrition" title="Preferences" kickerBelow right={<AccountButton />} />
-
-      <Card className="gap-3">
-        <CardTitle>Daily targets</CardTitle>
-        <View className="flex-row gap-3">
-          <Field label="Calories" value={calories} onChangeText={setCalories} editable={editing} keyboardType="decimal-pad" className="flex-1" />
-          <Field label="Protein (g)" value={protein} onChangeText={setProtein} editable={editing} keyboardType="decimal-pad" className="flex-1" />
-        </View>
-        <View className="flex-row gap-3">
-          <Field label="Carbs (g)" value={carbs} onChangeText={setCarbs} editable={editing} keyboardType="decimal-pad" className="flex-1" />
-          <Field label="Fat (g)" value={fat} onChangeText={setFat} editable={editing} keyboardType="decimal-pad" className="flex-1" />
-        </View>
-        <View className="flex-row gap-3">
-          <Field label="Fiber (g)" value={fiber} onChangeText={setFiber} editable={editing} keyboardType="decimal-pad" className="flex-1" />
-          <Field label="Sodium (mg)" value={sodium} onChangeText={setSodium} editable={editing} keyboardType="decimal-pad" className="flex-1" />
-        </View>
-        <Field label="Currency symbol" value={currency} onChangeText={setCurrency} editable={editing} className="w-28" />
-        {editing ? (
+    <View className="flex-1 bg-paper">
+      <DetailHeader title="Preferences" />
+      <ScrollView contentContainerClassName="px-4 pb-16 gap-[14px]">
+        <Card className="gap-3">
+          <CardTitle>Daily targets</CardTitle>
           <View className="flex-row gap-3">
-            <Button label="Save targets" onPress={saveTargets} disabled={!dirty} className="flex-1 py-[8px] rounded-xl" textClassName="text-[12px]" />
-            <Button label="Cancel" variant="secondary" onPress={cancelEdit} className="flex-1 py-[8px] rounded-xl" textClassName="text-[12px]" />
+            <Field label="Calories" value={calories} onChangeText={setCalories} editable={editing} keyboardType="decimal-pad" className="flex-1" />
+            <Field label="Protein (g)" value={protein} onChangeText={setProtein} editable={editing} keyboardType="decimal-pad" className="flex-1" />
           </View>
-        ) : (
-          <Button label="Edit targets" variant="secondary" onPress={() => setEditing(true)} className="py-[8px] rounded-xl" textClassName="text-[12px]" />
-        )}
-      </Card>
+          <View className="flex-row gap-3">
+            <Field label="Carbs (g)" value={carbs} onChangeText={setCarbs} editable={editing} keyboardType="decimal-pad" className="flex-1" />
+            <Field label="Fat (g)" value={fat} onChangeText={setFat} editable={editing} keyboardType="decimal-pad" className="flex-1" />
+          </View>
+          <View className="flex-row gap-3">
+            <Field label="Fiber (g)" value={fiber} onChangeText={setFiber} editable={editing} keyboardType="decimal-pad" className="flex-1" />
+            <Field label="Sodium (mg)" value={sodium} onChangeText={setSodium} editable={editing} keyboardType="decimal-pad" className="flex-1" />
+          </View>
+          <Field label="Currency symbol" value={currency} onChangeText={setCurrency} editable={editing} className="w-28" />
+          {editing ? (
+            <View className="flex-row gap-3">
+              <Button label="Save targets" onPress={saveTargets} disabled={!dirty} className="flex-1 py-[8px] rounded-xl" textClassName="text-[12px]" />
+              <Button label="Cancel" variant="secondary" onPress={cancelEdit} className="flex-1 py-[8px] rounded-xl" textClassName="text-[12px]" />
+            </View>
+          ) : (
+            <Button label="Edit targets" variant="secondary" onPress={() => setEditing(true)} className="py-[8px] rounded-xl" textClassName="text-[12px]" />
+          )}
+        </Card>
 
-      <AiAssistantCard />
+        <AiAssistantCard />
 
-      <Muted className="text-center text-[12px] mt-2">
-        NutriCraft · local-first + cloud sync
-      </Muted>
-    </ScrollView>
+        <Muted className="text-center text-[12px] mt-2">
+          NutriCraft · local-first + cloud sync
+        </Muted>
+      </ScrollView>
+    </View>
   );
 }

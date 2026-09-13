@@ -15,7 +15,7 @@ import { nutritionFor, sumNutrition, type NutritionTotals } from '@/lib/nutritio
 import { dateLabel, fmt, titleCase, todayISO } from '@/lib/format';
 import { mealLabel, type MealType } from '@/constants/meals';
 import { Cost } from '@/components/nutrition';
-import { AccountButton, AppHeader, Button, Card, EmptyState, HeaderAddButton, Muted } from '@/components/ui';
+import { AppHeader, Button, Card, EmptyState, HeaderAddButton, Muted } from '@/components/ui';
 import { GramStepper } from '@/components/GramStepper';
 import { CalendarField } from '@/components/CalendarField';
 import { MealTypeField } from '@/components/MealTypeField';
@@ -94,7 +94,6 @@ export default function MealsScreen() {
           kickerBelow
           subtitle="Build reusable meals and log them in one tap."
           titleAccessory={<HeaderAddButton onPress={newMeal} />}
-          right={<AccountButton />}
         />
       </View>
       <FlatList

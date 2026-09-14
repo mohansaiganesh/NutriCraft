@@ -1,5 +1,5 @@
 /**
- * Per-user, per-provider storage for the API keys the user enters in Preferences.
+ * Per-user, per-provider storage for the API keys the user enters under Account → AI assistant.
  *
  * Each key is a personal secret, so it lives in the OS keychain/keystore via `expo-secure-store` —
  * encrypted at rest and, critically, OUTSIDE the `settings` SQLite table (which syncs to Supabase,

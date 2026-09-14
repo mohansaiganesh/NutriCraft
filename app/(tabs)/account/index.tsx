@@ -6,7 +6,7 @@ import { useLiveQuery } from 'drizzle-orm/expo-sqlite';
 import { settingsQuery } from '@/db/queries';
 import { useSession } from '@/lib/session';
 import { Button, Card, DetailHeader, MenuRow, SectionLabel } from '@/components/ui';
-import { IconCloud, IconHistory, IconInfo, IconLock, IconTarget, IconUser } from '@/components/icons';
+import { IconCloud, IconHistory, IconInfo, IconLock, IconSparkles, IconTarget, IconUser } from '@/components/icons';
 
 export default function AccountMenuScreen() {
   const { email, signOut } = useSession();
@@ -67,7 +67,7 @@ export default function AccountMenuScreen() {
             <MenuRow
               icon={IconTarget}
               label="Preferences"
-              sublabel="Daily targets & assistant"
+              sublabel="Daily targets"
               onPress={() => router.push('/(tabs)/account/preferences')}
               divider
             />
@@ -78,10 +78,17 @@ export default function AccountMenuScreen() {
           <SectionLabel>App</SectionLabel>
           <Card className="py-1">
             <MenuRow
+              icon={IconSparkles}
+              label="AI assistant"
+              sublabel="Nico — provider API keys"
+              onPress={() => router.push('/(tabs)/account/assistant')}
+            />
+            <MenuRow
               icon={IconCloud}
               label="Data & sync"
               sublabel="Backup, restore, sync now"
               onPress={() => router.push('/(tabs)/account/data')}
+              divider
             />
             <MenuRow
               icon={IconHistory}

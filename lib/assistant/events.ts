@@ -288,7 +288,7 @@ export function describeError(
     case 'auth': {
       const hint = provider ? ` ${PROVIDER_KEY_HINT[provider]}` : '';
       return {
-        message: `Your ${name} API key was rejected.${hint} Paste a valid key in Preferences → AI Assistant.`,
+        message: `Your ${name} API key was rejected.${hint} Paste a valid key in Account → AI assistant.`,
         detail: raw || undefined,
       };
     }
@@ -302,12 +302,12 @@ export function describeError(
       return { message: raw || 'Network request failed — check your connection.' };
     case 'api':
       return {
-        message: `${name} had a temporary server error — please try again in a moment. If it keeps happening, pick a different model in Preferences → AI Assistant.`,
+        message: `${name} had a temporary server error — please try again in a moment. If it keeps happening, pick a different model in Account → AI assistant.`,
         detail: raw || undefined,
       };
     case 'bad_response':
       return {
-        message: `${name} returned a reply the app couldn't read — it may be overloaded, or the response was blocked. Try again, or switch models in Preferences → AI Assistant.`,
+        message: `${name} returned a reply the app couldn't read — it may be overloaded, or the response was blocked. Try again, or switch models in Account → AI assistant.`,
         detail: raw || undefined,
       };
     case 'iteration_limit':

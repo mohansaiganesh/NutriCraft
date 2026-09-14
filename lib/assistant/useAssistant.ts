@@ -53,7 +53,7 @@ export function useAssistant() {
   const [sending, setSending] = useState(false);
   const [trace, setTrace] = useState<TraceStep[]>([]); // live activity for the in-flight question
   // Which providers have a stored key (null = not checked yet). Drives the picker (only keyed
-  // providers are offered) and the no-key gate (empty ⇒ show the "Open Preferences" prompt).
+  // providers are offered) and the no-key gate (empty ⇒ show the "Open AI assistant" prompt).
   const [keyedProviders, setKeyedProviders] = useState<LlmProvider[] | null>(null);
   const [model, setModelState] = useState<string>(DEFAULT_MODEL);
   const [explicitCache, setExplicitCacheState] = useState<boolean>(false); // explicit prompt caching toggle
@@ -90,7 +90,7 @@ export function useAssistant() {
   }, [refreshKey]);
 
   // The no-key gate: null while unchecked, then true iff ANY provider has a key. The overlay shows the
-  // "Open Preferences" prompt only when this is false (no provider keyed at all).
+  // "Open AI assistant" prompt only when this is false (no provider keyed at all).
   const hasKey = keyedProviders === null ? null : keyedProviders.length > 0;
 
   // Load the user's chosen model + caching preference (both fall back to defaults); re-runs when the

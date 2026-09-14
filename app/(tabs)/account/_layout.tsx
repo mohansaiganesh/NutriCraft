@@ -8,6 +8,7 @@ export default function AccountLayout() {
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#F6F8F3' } }}>
       <Stack.Screen name="index" />
       <Stack.Screen name="preferences" />
+      <Stack.Screen name="assistant" />
       <Stack.Screen name="profile" />
       <Stack.Screen name="security" />
       <Stack.Screen name="data" />

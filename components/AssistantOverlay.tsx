@@ -256,7 +256,7 @@ export function AssistantOverlay() {
 
   const goToSettings = () => {
     setOpen(false);
-    router.push('/(tabs)/account/preferences');
+    router.push('/(tabs)/account/assistant');
   };
 
   const goToHistory = () => {
@@ -1130,15 +1130,15 @@ function NoKey({ onAdd }: { onAdd: () => void }) {
       </View>
       <Text className="font-display-sb text-[18px] text-ink text-center mb-2">Add an API key</Text>
       <Text className="font-body text-[13.5px] text-ink2 text-center leading-5 mb-6 max-w-[300px]">
-        Nico runs on your own API key from Google Gemini or Groq. Add one in Preferences to start
-        asking questions about your data.
+        Nico runs on your own API key from Google Gemini or Groq. Add one under Account → AI
+        assistant to start asking questions about your data.
       </Text>
       <Pressable
         onPress={onAdd}
         className="rounded-2xl px-5 py-[13px] bg-brand active:opacity-90"
         style={fabShadow}
       >
-        <Text className="text-white font-body-b text-[15px]">Open Preferences →</Text>
+        <Text className="text-white font-body-b text-[15px]">Open AI assistant →</Text>
       </Pressable>
     </View>
   );

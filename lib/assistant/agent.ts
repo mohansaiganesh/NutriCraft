@@ -3,15 +3,16 @@
  * read-only tools to call, execute them locally against SQLite, feed the results back, and
  * repeat until the model returns a plain text answer (or we hit the iteration cap).
  */
-import { ALL_FUNCTION_DECLARATIONS, callGemini } from './gemini';
-import type { GeminiContent, GeminiPart, GeminiResult } from './gemini';
-import { ensureCachedContent, invalidateCache } from './cache';
-import { describeWrite, executeWrite, isWriteTool, NAV_TOOLS, reviseWrite, runTool } from './tools';
+import { getClient } from './clients';
+import { providerForModel } from './models';
+import type { LlmMessage, LlmProvider, LlmResponsePart, LlmResult } from './provider';
+import { ALL_FUNCTION_DECLARATIONS, describeWrite, executeWrite, isWriteTool, NAV_TOOLS, reviseWrite, runTool } from './tools';
 import type { PendingWrite, WriteEdit } from './tools';
+import { hash } from './hash';
 import { newId } from '@/lib/id';
 import { todayISO } from '@/lib/format';
 import { callSignature, describeError, describeStop, toolErrorMessage, toolLabel, toolResultOk, writeDoneMessage } from './events';
-import type { AssistantErrorKind, GeminiRequestSnapshot, RetryStep, StopReason, StopReasonKind, TraceStep } from './events';
+import type { AssistantErrorKind, LlmRequestSnapshot, RetryStep, StopReason, StopReasonKind, TraceStep } from './events';
 
 // The loop adapts to observed progress rather than a single flat cap. These are safety BOUNDS, not
 // the normal stop — most questions finish in 1–3 rounds when the model returns plain text.
@@ -19,14 +20,14 @@ const MAX_ROUNDS = 12; // absolute ceiling on Gemini round-trips (was a flat 6)
 const MAX_TOOL_CALLS = 16; // cumulative tool executions across the whole run (rounds can batch calls)
 const MAX_STALLED_ROUNDS = 1; // consecutive rounds with NO new tool call before we bail
 
-/** The system prompt, stamped with the real current date so the model never guesses the year. */
+/** The system prompt, stamped with the real current date so the model never guesses the year. The date
+ * is the only text that changes (daily), so it goes LAST: providers prefix-cache from the start, and a
+ * dynamic line near the top would invalidate everything after it. */
 function buildSystemPrompt(): string {
   const today = todayISO();
   const weekday = new Date().toLocaleDateString(undefined, { weekday: 'long' });
   const year = today.slice(0, 4);
   return `You are NutriCraft's built-in nutrition assistant. You answer the user's questions about THEIR OWN data — logged foods, saved meals, daily logs, macros (calories, protein, carbs, fat, fiber, sodium) and costs — using the provided tools.
-
-Today's date is ${weekday}, ${today}. The current year is ${year}.
 
 Rules:
 - Always call tools to get real numbers. Never guess, estimate, or invent data.
@@ -41,7 +42,10 @@ Rules:
 - NEVER invent the details of a log. If the user didn't say HOW MUCH they ate (the grams/ml amount), ask them for it in one short plain-text question and do NOT call the write tool yet. You do NOT need to ask which meal — leave mealType off the tool call when they didn't say, and the app will ask them to pick. If the day isn't given, default to today. (Asking for a missing FACT like the amount is expected; it is NOT the same as asking permission to proceed, which you still must never do — see the next rule.)
 - Write tools do NOT take effect immediately. Each one returns { staged: true }, meaning the change is QUEUED — the app shows the user ONE confirmation covering ALL queued changes at the very end. So NEVER ask the user to confirm or approve a staged change in prose (no "please confirm", no "let me know if you'd like to proceed"), and NEVER claim a change is done, logged, changed, or removed while you are still staging.
 - Propose every change the user asked for (call the matching write tool once per change; you may include several in a single turn). When every requested change is staged, STOP calling tools and reply with ONE short present-tense sentence naming everything you are about to log (e.g. "I'll add 45 g of dates, 100 g of rice and 150 g of chicken."). Only name the meal in that sentence if the user actually told you which one. When you are then told the changes were applied, reply with a brief PAST-TENSE confirmation of what was logged (e.g. "Added dates, rice and chicken."). If you are told the user declined, say nothing was changed and offer to adjust — do not silently retry.
-- You cannot create or edit foods, create or rename meals or their items, or change targets/settings. If asked, briefly say so and point the user to the relevant screen (Foods, Meals, or Preferences).`;
+- You cannot create or edit foods, create or rename meals or their items, or change targets/settings. If asked, briefly say so and point the user to the relevant screen (Foods, Meals, or Preferences).
+
+Context:
+Today's date is ${weekday}, ${today}. The current year is ${year}.`;
 }
 
 export interface ChatTurn {
@@ -92,21 +96,20 @@ export type ConfirmDecision =
   | { kind: 'approve'; edits?: Record<string, WriteEdit> }
   | { kind: 'reject' };
 
-const hasFunctionCall = (
-  p: GeminiPart
-): p is { functionCall: { name: string; args: Record<string, unknown>; id?: string } } =>
-  'functionCall' in p;
+const isToolCall = (p: LlmResponsePart): p is Extract<LlmResponsePart, { type: 'toolCall' }> =>
+  p.type === 'toolCall';
 
-/** Gemini requires functionResponse.response to be a JSON object; wrap arrays/scalars. */
+/** Tool responses must be a JSON object; wrap arrays/scalars. */
 function wrapResponse(v: unknown): Record<string, unknown> {
   return v !== null && typeof v === 'object' && !Array.isArray(v)
     ? (v as Record<string, unknown>)
     : { result: v };
 }
 
-/** Build the structured error, logging it in dev so failures are visible in the Metro console. */
-function fail(kind: AssistantErrorKind, raw: string, iteration: number): AssistantResult {
-  const { message, detail } = describeError(kind, raw);
+/** Build the structured error, logging it in dev so failures are visible in the Metro console. The
+ * provider tailors the copy (e.g. which key to create on an auth failure). */
+function fail(kind: AssistantErrorKind, raw: string, iteration: number, provider?: LlmProvider): AssistantResult {
+  const { message, detail } = describeError(kind, raw, provider);
   const error: AssistantError = { kind, message, detail, iteration };
   if (__DEV__) console.warn('[assistant] error', error);
   return { ok: false, error };
@@ -140,14 +143,21 @@ export async function runAssistant(opts: {
   };
 
   // Seed the conversation with prior text turns, then the new question.
-  const contents: GeminiContent[] = opts.history.map((t) => ({
-    role: t.role === 'user' ? 'user' : 'model',
-    parts: [{ text: t.text }],
+  const contents: LlmMessage[] = opts.history.map((t) => ({
+    role: t.role === 'user' ? 'user' : 'assistant',
+    parts: [{ type: 'text', text: t.text }],
   }));
-  contents.push({ role: 'user', parts: [{ text: opts.question }] });
+  contents.push({ role: 'user', parts: [{ type: 'text', text: opts.question }] });
 
   // Built once per run — the date is stable across the loop's iterations.
   const systemPrompt = buildSystemPrompt();
+  // Fingerprint of everything a provider can prefix-cache, recorded on every round so the trace proves
+  // the prefix stays byte-identical.
+  const prefixHash = hash(systemPrompt + JSON.stringify(ALL_FUNCTION_DECLARATIONS));
+
+  // The provider + adapter for the chosen model, resolved once per run (provider is fixed for a run).
+  const provider = providerForModel(opts.model);
+  const client = getClient(provider);
 
   // Adaptive-budget state, tracked across rounds.
   const seen = new Set<string>(); // signatures of tool calls already executed (repeat = no progress)
@@ -176,21 +186,30 @@ export async function runAssistant(opts: {
    * main loop and the single closing round after a confirmation. The request is snapshotted at call
    * time (deep copy — `contents` keeps growing) and carried on every emit so the persisted trace shows
    * exactly what was sent to the model. */
-  const callModel = async (iteration: number): Promise<GeminiResult> => {
+  const callModel = async (iteration: number): Promise<LlmResult> => {
     const modelStepId = newId();
     const startedAt = new Date().toISOString();
     const startMs = Date.now();
-    // Explicit caching is opt-in and best-effort: ensureCachedContent returns null on a free-tier /
-    // sub-floor key, in which case we send the full prompt and rely on implicit caching.
-    const cacheName = opts.explicitCache
-      ? await ensureCachedContent({ apiKey: opts.apiKey, model: opts.model, systemInstruction: systemPrompt })
-      : null;
-    const request: GeminiRequestSnapshot = {
+    // Explicit caching is opt-in AND a provider capability: only attempt it when the user enabled it
+    // and this provider exposes ensureCache (Gemini). It's best-effort — a free-tier / sub-floor key
+    // returns null, so we send the full prompt. Auto-cache providers (Groq) need no resource; their
+    // caching is server-side and shows up in usage.cachedTokens.
+    const cacheName =
+      opts.explicitCache && client.ensureCache
+        ? await client.ensureCache({
+            apiKey: opts.apiKey,
+            model: opts.model,
+            systemInstruction: systemPrompt,
+            tools: ALL_FUNCTION_DECLARATIONS,
+          })
+        : null;
+    const request: LlmRequestSnapshot = {
       systemInstruction: systemPrompt,
-      contents: JSON.parse(JSON.stringify(contents)) as GeminiContent[],
+      contents: JSON.parse(JSON.stringify(contents)) as LlmMessage[],
       toolNames: ALL_FUNCTION_DECLARATIONS.map((d) => d.name),
       generationConfig: null, // the client currently sends no sampling config — recorded as-is.
       cachedContent: cacheName,
+      prefixHash,
     };
     const base = { kind: 'model', id: modelStepId, iteration, model: opts.model, request, startedAt } as const;
     emit({ ...base, status: 'running' });
@@ -200,9 +219,10 @@ export async function runAssistant(opts: {
       retries.push(step);
       emit(step);
     };
-    let res = await callGemini({
-      contents,
+    let res = await client.call({
+      messages: contents,
       systemInstruction: systemPrompt,
+      tools: ALL_FUNCTION_DECLARATIONS,
       apiKey: opts.apiKey,
       model: opts.model,
       cachedContent: cacheName ?? undefined,
@@ -212,10 +232,11 @@ export async function runAssistant(opts: {
     // The cache resource expired between rounds — drop it and retry once with the full prompt so the
     // turn still succeeds (next round re-establishes a fresh cache).
     if (!res.ok && res.error.cacheInvalid && cacheName) {
-      invalidateCache();
-      res = await callGemini({
-        contents,
+      client.invalidateCache?.();
+      res = await client.call({
+        messages: contents,
         systemInstruction: systemPrompt,
+        tools: ALL_FUNCTION_DECLARATIONS,
         apiKey: opts.apiKey,
         model: opts.model,
         signal: opts.signal,
@@ -353,15 +374,15 @@ export async function runAssistant(opts: {
 
   for (let i = 0; i < MAX_ROUNDS; i++) {
     const res = await callModel(i);
-    if (!res.ok) return fail(res.error.kind, res.error.message, i);
+    if (!res.ok) return fail(res.error.kind, res.error.message, i, provider);
 
-    const calls = res.parts.filter(hasFunctionCall);
-    // Record the model's turn (text and/or the function calls it wants) in the running history.
-    contents.push({ role: 'model', parts: res.parts });
+    const calls = res.parts.filter(isToolCall);
+    // Record the model's turn (text and/or the tool calls it wants) in the running history.
+    contents.push({ role: 'assistant', parts: res.parts });
 
     // Keep the best plain text seen so far — used as the closing summary / an early-exit partial.
     const roundText = res.parts
-      .map((p) => ('text' in p ? p.text : ''))
+      .map((p) => (p.type === 'text' ? p.text : ''))
       .join('')
       .trim();
     if (roundText) lastText = roundText;
@@ -375,7 +396,7 @@ export async function runAssistant(opts: {
 
     // Stall detection: if EVERY call this round repeats one we already ran, the model is looping and
     // making no new progress. Tolerate MAX_STALLED_ROUNDS such rounds, then bail.
-    const signatures = calls.map((c) => callSignature(c.functionCall.name, c.functionCall.args));
+    const signatures = calls.map((c) => callSignature(c.name, c.args));
     const hasNewWork = signatures.some((s) => !seen.has(s));
     if (hasNewWork) {
       stalledRounds = 0;
@@ -390,13 +411,13 @@ export async function runAssistant(opts: {
 
     // Execute each requested tool locally and return every result in one turn. Read tools run
     // immediately; write tools are staged (validated but not persisted) for the single end-of-run card.
-    const responseParts: GeminiPart[] = [];
+    const responseParts: LlmMessage['parts'] = [];
     for (const c of calls) {
-      // Echo the model's call id when present so parallel calls stay paired in both the trace + Gemini.
-      const stepId = c.functionCall.id ?? newId();
-      const name = c.functionCall.name;
+      // Echo the model's call id when present so parallel calls stay paired in the trace + provider.
+      const stepId = c.id ?? newId();
+      const name = c.name;
       const label = toolLabel(name);
-      const args = c.functionCall.args;
+      const args = c.args;
 
       const result = isWriteTool(name)
         ? await stageWrite(name, label, stepId, args)
@@ -410,11 +431,10 @@ export async function runAssistant(opts: {
       }
 
       responseParts.push({
-        functionResponse: {
-          name,
-          response: wrapResponse(result),
-          ...(c.functionCall.id ? { id: c.functionCall.id } : {}),
-        },
+        type: 'toolResult',
+        name,
+        response: wrapResponse(result),
+        ...(c.id ? { id: c.id } : {}),
       });
     }
     // Record what we just executed so repeats register as no-progress, and spend the work budget.

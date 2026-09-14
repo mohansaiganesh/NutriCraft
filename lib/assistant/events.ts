@@ -9,28 +9,33 @@
  * Transport is a single union upserted by `id`: a step is emitted first as `running`, then
  * re-emitted with the SAME id as `ok`/`error`/`done`. Consumers just replace-or-push by id.
  */
-import type { GeminiContent, GeminiErrorKind, GeminiPart } from './gemini';
+import type { LlmErrorKind, LlmMessage, LlmProvider, LlmResponsePart } from './provider';
+import { PROVIDER_LABEL } from './models';
 
 export type ToolStatus = 'running' | 'ok' | 'error';
 
 /**
- * The exact request sent to Gemini for one round, snapshotted at call time so the persisted trace can
- * show "what was passed to the model" end-to-end. `contents` is a DEEP COPY (the agent mutates the
- * running conversation across rounds). `generationConfig` is whatever sampling config was sent —
- * currently `null` (the client sends none), which keeps the trace honest that defaults were used.
+ * The exact request sent to the model for one round, snapshotted at call time so the persisted trace
+ * can show "what was passed to the model" end-to-end, in the neutral (provider-agnostic) shape.
+ * `contents` is a DEEP COPY (the agent mutates the running conversation across rounds).
+ * `generationConfig` is whatever sampling config was sent — currently `null` (the client sends none),
+ * which keeps the trace honest that defaults were used.
  */
-export interface GeminiRequestSnapshot {
+export interface LlmRequestSnapshot {
   systemInstruction: string;
-  contents: GeminiContent[];
+  contents: LlmMessage[];
   toolNames: string[];
   generationConfig: Record<string, unknown> | null;
-  /** The `cachedContents` resource this round referenced (systemInstruction + tools live there), or
+  /** The explicit-cache resource this round referenced (systemInstruction + tools live there), or
    * null when the full prompt was sent inline. Lets the trace show whether explicit caching applied. */
   cachedContent: string | null;
+  /** Fingerprint of the cacheable prefix (system instruction + full tool declarations). Identical across
+   * rounds and questions ⇒ the prefix is byte-stable, so a missing cache hit is on the provider's side. */
+  prefixHash?: string;
 }
 
 /**
- * A round-trip to Gemini, rendered as its own row. Token counts + response are set on the terminal
+ * A round-trip to the model, rendered as its own row. Token counts + response are set on the terminal
  * re-emit; `request`, `model`, `startedAt` are carried on every emit so the upsert-by-id reducer
  * never loses them. A failed call terminates as `status: 'error'` (not left spinning as `running`).
  */
@@ -40,8 +45,8 @@ export interface ModelStep {
   iteration: number;
   status: 'running' | 'done' | 'error';
   model?: string; // the model id this call used
-  request?: GeminiRequestSnapshot; // the exact payload sent (set from the first emit onward)
-  response?: GeminiPart[]; // raw response parts — set on a successful `done`
+  request?: LlmRequestSnapshot; // the exact payload sent (set from the first emit onward)
+  response?: LlmResponsePart[]; // neutral response parts — set on a successful `done`
   finishReason?: string; // candidates[0].finishReason when reported
   inputTokens?: number; // promptTokenCount — set once the call returns (absent while running)
   outputTokens?: number; // candidatesTokenCount
@@ -52,7 +57,8 @@ export interface ModelStep {
   durationMs?: number; // wall-clock time of the round-trip, set on the terminal emit
 }
 
-/** A transient 5xx retry inside a single Gemini call (surfaced so the user sees the wait explained). */
+/** A retry inside a single model call — a transient 5xx, or a short rate-limit (429) wait — surfaced so
+ * the user sees the wait explained. */
 export interface RetryStep {
   kind: 'retry';
   id: string;
@@ -97,7 +103,7 @@ export interface ConfirmStep {
 
 export type TraceStep = ModelStep | RetryStep | ToolStep | ConfirmStep;
 
-export type AssistantErrorKind = GeminiErrorKind | 'iteration_limit';
+export type AssistantErrorKind = LlmErrorKind | 'iteration_limit';
 
 // ------------------------------------------------------------------ adaptive loop helpers
 
@@ -252,28 +258,43 @@ const ERROR_TITLES: Record<AssistantErrorKind, string> = {
   auth: 'API key rejected',
   rate_limit: 'Rate limited',
   network: 'Connection problem',
-  api: 'Gemini server error',
+  api: 'Model server error',
   bad_response: 'Unreadable response',
   iteration_limit: 'Too many steps',
 };
 
 export const errorTitle = (k?: AssistantErrorKind): string => (k && ERROR_TITLES[k]) || 'Something went wrong';
 
+/** Provider-specific guidance appended to the generic "key rejected" message, so the copy stays
+ * accurate as providers are added. Keep each hint to one actionable sentence. */
+const PROVIDER_KEY_HINT: Record<LlmProvider, string> = {
+  google:
+    'Google no longer accepts the older keys that start with "AIza" — create a new key (an auth key, starting with "AQ.") at aistudio.google.com/apikey.',
+  groq: 'Create a key at console.groq.com/keys.',
+};
+
 /**
  * Friendly, actionable copy for each failure — plus the raw provider text as `detail` for the
- * expandable "Technical details". Every kind is handled (fixes the old `bad_response` leak).
+ * expandable "Technical details". Every kind is handled (fixes the old `bad_response` leak). Copy is
+ * provider-neutral; pass the active `provider` to tailor the key-creation hint on an auth failure.
  */
-export function describeError(kind: AssistantErrorKind, raw: string): { message: string; detail?: string } {
+export function describeError(
+  kind: AssistantErrorKind,
+  raw: string,
+  provider?: LlmProvider,
+): { message: string; detail?: string } {
+  const name = provider ? PROVIDER_LABEL[provider] : 'AI';
   switch (kind) {
-    case 'auth':
+    case 'auth': {
+      const hint = provider ? ` ${PROVIDER_KEY_HINT[provider]}` : '';
       return {
-        message:
-          'Your Gemini API key was rejected. Google no longer accepts the older keys that start with "AIza" — create a new key (an auth key, starting with "AQ.") at aistudio.google.com/apikey and paste it in Preferences → AI Assistant.',
+        message: `Your ${name} API key was rejected.${hint} Paste a valid key in Preferences → AI Assistant.`,
         detail: raw || undefined,
       };
+    }
     case 'rate_limit':
       return {
-        message: "Gemini's free-tier rate limit was hit. Wait a minute and try again.",
+        message: `${name}'s rate limit was hit. Wait a minute and try again.`,
         detail: raw || undefined,
       };
     case 'network':
@@ -281,14 +302,12 @@ export function describeError(kind: AssistantErrorKind, raw: string): { message:
       return { message: raw || 'Network request failed — check your connection.' };
     case 'api':
       return {
-        message:
-          'Gemini had a temporary server error — please try again in a moment. If it keeps happening, pick a different model in Preferences → AI Assistant.',
+        message: `${name} had a temporary server error — please try again in a moment. If it keeps happening, pick a different model in Preferences → AI Assistant.`,
         detail: raw || undefined,
       };
     case 'bad_response':
       return {
-        message:
-          "Gemini returned a reply the app couldn't read — it may be overloaded, or the response was blocked. Try again, or switch models in Preferences → AI Assistant.",
+        message: `${name} returned a reply the app couldn't read — it may be overloaded, or the response was blocked. Try again, or switch models in Preferences → AI Assistant.`,
         detail: raw || undefined,
       };
     case 'iteration_limit':

@@ -1,6 +1,6 @@
 /**
- * React state for the assistant chat panel: message list, send/stop, and whether the current
- * user has a Gemini key stored. Owns an AbortController so closing the panel or asking a new
+ * React state for the assistant chat panel: message list, send/stop, and which providers the
+ * current user has a key stored for. Owns an AbortController so closing the panel or asking a new
  * question cancels an in-flight request.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
@@ -10,7 +10,8 @@ import { saveTrace } from '@/db/queries';
 import { getApiKey, hasApiKey } from './keyStore';
 import { getModel, setModel } from './modelStore';
 import { getCachePref, setCachePref } from './cachePrefStore';
-import { DEFAULT_MODEL } from './gemini';
+import { ALL_PROVIDERS, AVAILABLE_MODELS, DEFAULT_MODEL, providerForModel } from './models';
+import type { LlmProvider } from './provider';
 import { runAssistant } from './agent';
 import type { ChatTurn, ConfirmDecision, ConfirmRequest, NavTarget } from './agent';
 import type { WriteEdit } from './tools';
@@ -51,13 +52,18 @@ export function useAssistant() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [sending, setSending] = useState(false);
   const [trace, setTrace] = useState<TraceStep[]>([]); // live activity for the in-flight question
-  const [hasKey, setHasKey] = useState<boolean | null>(null); // null = not checked yet
+  // Which providers have a stored key (null = not checked yet). Drives the picker (only keyed
+  // providers are offered) and the no-key gate (empty ⇒ show the "Open Preferences" prompt).
+  const [keyedProviders, setKeyedProviders] = useState<LlmProvider[] | null>(null);
   const [model, setModelState] = useState<string>(DEFAULT_MODEL);
   const [explicitCache, setExplicitCacheState] = useState<boolean>(false); // explicit prompt caching toggle
   const [pendingWrite, setPendingWrite] = useState<ConfirmRequest | null>(null); // a write awaiting Confirm/Cancel
   const abortRef = useRef<AbortController | null>(null);
   const resolveConfirmRef = useRef<((d: ConfirmDecision) => void) | null>(null); // resolves the paused onConfirm
   const runSeq = useRef(0); // bumped per send / stop / clear so stale emits are ignored
+
+  // The provider serving the currently-selected model — drives which key we read and the NoKey copy.
+  const provider = providerForModel(model);
 
   // Settle any in-flight confirmation with a decision and clear the card. Used by the Confirm/Cancel
   // buttons and, defensively, by stop/clear/unmount so a paused write can never dangle or auto-run.
@@ -68,13 +74,24 @@ export function useAssistant() {
     resolve?.(decision);
   }, []);
 
+  // Probe every provider's stored key in parallel and keep the ones that are set. Depends only on the
+  // account (not the selected model), so it's a single check the panel re-runs on open.
   const refreshKey = useCallback(async () => {
-    setHasKey(userId ? await hasApiKey(userId) : false);
+    if (!userId) {
+      setKeyedProviders([]);
+      return;
+    }
+    const present = await Promise.all(ALL_PROVIDERS.map((p) => hasApiKey(userId, p)));
+    setKeyedProviders(ALL_PROVIDERS.filter((_, i) => present[i]));
   }, [userId]);
 
   useEffect(() => {
     refreshKey();
   }, [refreshKey]);
+
+  // The no-key gate: null while unchecked, then true iff ANY provider has a key. The overlay shows the
+  // "Open Preferences" prompt only when this is false (no provider keyed at all).
+  const hasKey = keyedProviders === null ? null : keyedProviders.length > 0;
 
   // Load the user's chosen model + caching preference (both fall back to defaults); re-runs when the
   // account changes.
@@ -98,6 +115,15 @@ export function useAssistant() {
     [userId]
   );
 
+  // Keep the active model runnable: if the selected model's provider has no key but another provider
+  // does, switch to the first keyed model. (No-op when nothing is keyed — the NoKey prompt shows.)
+  useEffect(() => {
+    if (!keyedProviders || keyedProviders.length === 0) return;
+    if (keyedProviders.includes(providerForModel(model))) return;
+    const next = AVAILABLE_MODELS.find((m) => keyedProviders.includes(m.provider));
+    if (next) chooseModel(next.id);
+  }, [keyedProviders, model, chooseModel]);
+
   // Toggle explicit prompt caching from the chat: update state now, persist per-user in the background.
   const setExplicitCache = useCallback(
     (on: boolean) => {
@@ -112,12 +138,11 @@ export function useAssistant() {
       const text = raw.trim();
       if (!text || sending || !userId) return;
 
-      const key = await getApiKey(userId);
+      const key = await getApiKey(userId, provider);
       if (!key) {
-        setHasKey(false);
+        refreshKey(); // the active provider lost its key — re-probe so the picker / gate update
         return;
       }
-      setHasKey(true);
 
       // History = prior non-error turns, captured before we append the new question. Coalesce any
       // adjacent same-role turns into one — a no-op for plain alternating chats, and a guard that
@@ -205,7 +230,7 @@ export function useAssistant() {
       setSending(false);
       abortRef.current = null;
     },
-    [messages, sending, userId, model, explicitCache]
+    [messages, sending, userId, model, provider, explicitCache, refreshKey]
   );
 
   const confirmWrite = useCallback(
@@ -246,7 +271,9 @@ export function useAssistant() {
     sending,
     trace,
     hasKey,
+    keyedProviders: keyedProviders ?? [],
     model,
+    provider,
     chooseModel,
     explicitCache,
     setExplicitCache,

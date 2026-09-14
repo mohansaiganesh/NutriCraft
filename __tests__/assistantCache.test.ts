@@ -1,17 +1,11 @@
 /**
- * The pure, network-free helpers behind explicit prompt caching: how a cache entry's identity is
- * derived (so a changed model / key / system prompt forces a fresh resource) and when a memoized
+ * The pure, network-free helpers behind Gemini's explicit prompt caching: how a cache entry's identity
+ * is derived (so a changed model / key / system prompt forces a fresh resource) and when a memoized
  * resource is still safe to reuse. The fetch-driven create path is not exercised here.
  *
- * `cache.ts` imports only constants from `gemini.ts`, so it stays jest-testable without the RN /
- * expo-sqlite chain — mock `gemini` to keep it that way.
+ * These live in the Google provider adapter (`providers/google.ts`), which is pure/RN-free.
  */
-jest.mock('@/lib/assistant/gemini', () => ({
-  GEMINI_BASE: 'https://example.test/v1beta',
-  ALL_FUNCTION_DECLARATIONS: [{ name: 'search_foods' }],
-}));
-
-import { cacheMemoKey, isMemoFresh } from '@/lib/assistant/cache';
+import { cacheMemoKey, isMemoFresh } from '@/lib/assistant/providers/google';
 
 describe('cacheMemoKey', () => {
   it('is stable for identical model + key + system prompt', () => {

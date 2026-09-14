@@ -95,11 +95,14 @@ replace the placeholder package `com.anonymous.nutricraft`.
 - **Styling:** NativeWind (Tailwind).
 - **Reactive data:** Drizzle `useLiveQuery` (SQLite change listener) — screens update
   automatically on writes.
-- **AI assistant (Nico):** an in-app assistant (Google Gemini) that can log foods and apply
-  saved meals to a day, each behind a confirmation card. It's mounted globally
-  (`components/AssistantOverlay.tsx`), supports voice dictation into its composer, and calls the
-  same `db/queries.ts` mutations screens use. Bring your own Gemini API key in Account → Preferences; see
-  `lib/assistant/`. Every run is recorded to the syncable `assistant_traces` table, inspectable
+- **AI assistant (Nico):** an in-app assistant that can log foods and apply saved meals to a day,
+  each behind a confirmation card. It's mounted globally (`components/AssistantOverlay.tsx`),
+  supports voice dictation into its composer, and calls the same `db/queries.ts` mutations screens
+  use. It's **multi-provider**: pick a model from **Google Gemini** or **Groq** (gpt-oss) in the chat
+  dropdown. The agent loop speaks a provider-neutral format (`lib/assistant/provider.ts`) and each
+  provider is a thin adapter (`lib/assistant/providers/`) behind a registry (`clients.ts`, `models.ts`)
+  — adding a provider is one adapter + one registry line. Bring your own API key (per provider) in
+  Account → Preferences. Every run is recorded to the syncable `assistant_traces` table, inspectable
   under the account area.
 - **Accounts & cloud sync (required):** the app runs behind an email/password login — the
   `AuthScreen` is the entry point, and signing out returns to it so a different user can
@@ -144,7 +147,7 @@ show, with a quiet "unavailable" note. OFF needs no key; USDA needs a free
 | Food catalog + form      | `app/(tabs)/foods.tsx`, `app/food/[id].tsx`          |
 | Meal templates           | `app/(tabs)/meals.tsx`, `app/meal/[id].tsx`          |
 | Reports & charts         | `app/(tabs)/reports.tsx`, `lib/reports.ts`, `lib/reportHtml.ts`, `components/charts.tsx` |
-| AI assistant (Nico)      | `lib/assistant/`, `components/AssistantOverlay.tsx`  |
+| AI assistant (Nico)      | `lib/assistant/` (loop `agent.ts`, neutral seam `provider.ts`, registry `clients.ts`/`models.ts`, adapters `providers/`), `components/AssistantOverlay.tsx` |
 | Account area             | `app/(tabs)/account/` (profile, security, preferences, data, traces) |
 | Auth & cloud sync        | `lib/session.tsx`, `lib/sync.ts`, `supabase/`        |
 | Settings / targets       | `app/(tabs)/account/preferences.tsx`                  |

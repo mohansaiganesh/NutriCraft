@@ -99,7 +99,7 @@ describe('errorTitle', () => {
   it('titles every known kind', () => {
     expect(errorTitle('auth')).toBe('API key rejected');
     expect(errorTitle('rate_limit')).toBe('Rate limited');
-    expect(errorTitle('api')).toBe('Gemini server error');
+    expect(errorTitle('api')).toBe('Model server error');
     expect(errorTitle('bad_response')).toBe('Unreadable response');
     expect(errorTitle('iteration_limit')).toBe('Too many steps');
   });
@@ -139,9 +139,22 @@ describe('traceUsage', () => {
 
 describe('describeError', () => {
   it('gives auth a friendly message and keeps the raw text as detail', () => {
-    const r = describeError('auth', 'Expected OAuth 2 access token');
+    // With the Google provider, the message carries Google's key-creation hint (the "AQ." note).
+    const r = describeError('auth', 'Expected OAuth 2 access token', 'google');
     expect(r.message).toMatch(/AQ\./);
     expect(r.detail).toBe('Expected OAuth 2 access token');
+  });
+
+  it('tailors the auth hint per provider (Groq → its console)', () => {
+    const r = describeError('auth', 'Invalid API Key', 'groq');
+    expect(r.message).toMatch(/console\.groq\.com/);
+    expect(r.message).toMatch(/Groq/);
+  });
+
+  it('stays provider-neutral when no provider is given', () => {
+    const r = describeError('auth', 'nope');
+    expect(r.message).toMatch(/API key was rejected/);
+    expect(r.message).not.toMatch(/AQ\.|console\.groq/);
   });
 
   it('no longer leaks the raw message for bad_response (the old gap)', () => {

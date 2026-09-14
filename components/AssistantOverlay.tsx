@@ -45,7 +45,8 @@ import type { ConfirmRequest } from '@/lib/assistant/agent';
 import type { WriteEdit } from '@/lib/assistant/tools';
 import { MEAL_TYPES } from '@/constants/meals';
 import type { MealType } from '@/constants/meals';
-import { AVAILABLE_MODELS } from '@/lib/assistant/gemini';
+import { AVAILABLE_MODELS, PROVIDER_LABEL, cachingMode, providerForModel } from '@/lib/assistant/models';
+import type { LlmProvider } from '@/lib/assistant/provider';
 import { errorTitle, previewJson, traceUsage } from '@/lib/assistant/events';
 import type { StopReason, TraceStep } from '@/lib/assistant/events';
 import { parseMarkdown } from '@/lib/assistant/markdown';
@@ -112,13 +113,19 @@ export function AssistantOverlay() {
   const [kbInset, setKbInset] = useState(0);
   const [draft, setDraft] = useState('');
   const [menuOpen, setMenuOpen] = useState(false);
-  const { messages, sending, trace, hasKey, model, chooseModel, explicitCache, setExplicitCache, send, stop, clear, refreshKey, pendingWrite, confirmWrite, cancelWrite } =
+  const { messages, sending, trace, hasKey, keyedProviders, model, provider, chooseModel, explicitCache, setExplicitCache, send, stop, clear, refreshKey, pendingWrite, confirmWrite, cancelWrite } =
     useAssistant();
   // Dictation appends to the composer live and keeps listening until the user taps stop; the text
   // stays put for the user to review, then send.
   const voice = useVoiceInput({ onTranscript: setDraft });
   const scrollRef = useRef<ScrollView>(null);
   const activeModelLabel = AVAILABLE_MODELS.find((m) => m.id === model)?.label ?? model;
+  // The picker offers only models whose provider the user has keyed — a Groq-less user never sees the
+  // Groq group, and vice versa.
+  const pickerModels = AVAILABLE_MODELS.filter((m) => keyedProviders.includes(m.provider));
+  // How the caching control renders for the active provider: 'explicit' → interactive toggle,
+  // 'auto' → always-on badge, 'none' → hidden.
+  const cacheMode = cachingMode(provider);
 
   // --- Draggable bubble --------------------------------------------------------------------------
   // The bubble can be dragged and snaps to the nearest corner on release; the chosen corner is
@@ -381,28 +388,38 @@ export function AssistantOverlay() {
                             className="absolute left-0 bottom-full mb-2 min-w-[210px] rounded-2xl bg-card border border-hair overflow-hidden"
                             style={menuShadow}
                           >
-                            {AVAILABLE_MODELS.map((m, i) => {
+                            {pickerModels.map((m, i) => {
                               const active = model === m.id;
+                              // A small provider header leads the first model of each provider group.
+                              const showHeader = i === 0 || pickerModels[i - 1].provider !== m.provider;
                               return (
-                                <Pressable
-                                  key={m.id}
-                                  onPress={() => {
-                                    chooseModel(m.id);
-                                    setMenuOpen(false);
-                                  }}
-                                  className={`flex-row items-center gap-2 px-[14px] py-[11px] ${
-                                    i > 0 ? 'border-t border-hair' : ''
-                                  } ${active ? 'bg-[#EAF7EC]' : 'active:bg-[#F1F4EE]'}`}
-                                >
-                                  <View className="w-[16px] items-center">
-                                    {active ? <IconCheck size={15} color="#2F9E44" /> : null}
-                                  </View>
-                                  <Text
-                                    className={`font-body-md text-[13.5px] ${active ? 'text-brand' : 'text-ink2'}`}
+                                <View key={m.id}>
+                                  {showHeader ? (
+                                    <View className={`px-[14px] pt-[9px] pb-[5px] ${i > 0 ? 'border-t border-hair' : ''}`}>
+                                      <Text className="font-display-sb text-[10.5px] text-ink3 uppercase tracking-wide">
+                                        {PROVIDER_LABEL[m.provider]}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+                                  <Pressable
+                                    onPress={() => {
+                                      chooseModel(m.id);
+                                      setMenuOpen(false);
+                                    }}
+                                    className={`flex-row items-center gap-2 px-[14px] py-[10px] ${
+                                      active ? 'bg-[#EAF7EC]' : 'active:bg-[#F1F4EE]'
+                                    }`}
                                   >
-                                    {m.label}
-                                  </Text>
-                                </Pressable>
+                                    <View className="w-[16px] items-center">
+                                      {active ? <IconCheck size={15} color="#2F9E44" /> : null}
+                                    </View>
+                                    <Text
+                                      className={`font-body-md text-[13.5px] ${active ? 'text-brand' : 'text-ink2'}`}
+                                    >
+                                      {m.label}
+                                    </Text>
+                                  </Pressable>
+                                </View>
                               );
                             })}
                           </View>
@@ -419,23 +436,35 @@ export function AssistantOverlay() {
                         </Pressable>
                       </View>
 
-                      {/* Explicit prompt caching: reuses the system prompt + tool defs across calls to
-                          save tokens. Needs a paid Gemini key; otherwise it falls back automatically,
-                          so implicit caching still applies when this is off. */}
-                      <Pressable
-                        onPress={() => setExplicitCache(!explicitCache)}
-                        accessibilityRole="switch"
-                        accessibilityState={{ checked: explicitCache }}
-                        accessibilityLabel="Toggle prompt caching to save tokens"
-                        className={`flex-row items-center gap-1.5 rounded-full border px-[12px] py-[6px] active:opacity-80 ${
-                          explicitCache ? 'border-brand bg-[#EAF7EC]' : 'border-hair bg-card'
-                        }`}
-                      >
-                        <Text className="text-[12px]">⚡</Text>
-                        <Text className={`font-body-md text-[12px] ${explicitCache ? 'text-brand' : 'text-ink3'}`}>
-                          Caching {explicitCache ? 'on' : 'off'}
-                        </Text>
-                      </Pressable>
+                      {/* Prompt caching. Explicit-cache providers (Gemini) get an interactive toggle:
+                          it reuses the system prompt + tool defs across calls to save tokens; needs a
+                          paid key, otherwise it falls back automatically. Auto-cache providers (Groq)
+                          cache server-side always — shown as a non-interactive "on" badge. */}
+                      {cacheMode === 'explicit' ? (
+                        <Pressable
+                          onPress={() => setExplicitCache(!explicitCache)}
+                          accessibilityRole="switch"
+                          accessibilityState={{ checked: explicitCache }}
+                          accessibilityLabel="Toggle prompt caching to save tokens"
+                          className={`flex-row items-center gap-1.5 rounded-full border px-[12px] py-[6px] active:opacity-80 ${
+                            explicitCache ? 'border-brand bg-[#EAF7EC]' : 'border-hair bg-card'
+                          }`}
+                        >
+                          <Text className="text-[12px]">⚡</Text>
+                          <Text className={`font-body-md text-[12px] ${explicitCache ? 'text-brand' : 'text-ink3'}`}>
+                            Caching {explicitCache ? 'on' : 'off'}
+                          </Text>
+                        </Pressable>
+                      ) : cacheMode === 'auto' ? (
+                        <View
+                          accessibilityRole="text"
+                          accessibilityLabel="Prompt caching is automatic for this provider"
+                          className="flex-row items-center gap-1.5 rounded-full border border-brand bg-[#EAF7EC] px-[12px] py-[6px]"
+                        >
+                          <Text className="text-[12px]">⚡</Text>
+                          <Text className="font-body-md text-[12px] text-brand">Auto cache</Text>
+                        </View>
+                      ) : null}
                     </View>
 
                     <View className="flex-row items-end gap-2 px-4 pt-2 pb-3">
@@ -914,7 +943,7 @@ function MealPicker({ value, onPick }: { value: MealType | null; onPick: (m: Mea
   );
 }
 
-/** Live activity while the assistant works — the step list (each Gemini call + tool call is a row)
+/** Live activity while the assistant works — the step list (each model call + tool call is a row)
  * plus a running token-usage summary. Replaces the old static "Thinking…" bubble. */
 function ActivityTrace({ steps }: { steps: TraceStep[] }) {
   return (
@@ -960,9 +989,16 @@ function StepRow({ step }: { step: TraceStep }) {
     const errored = step.status === 'error';
     const hasTokens = step.inputTokens != null || step.outputTokens != null;
     const cached = step.cachedTokens ?? 0;
-    // Which cache path this round used: explicit if it referenced a cachedContents resource,
-    // else implicit when Gemini reported a cached prefix on its own.
-    const cacheTag = step.request?.cachedContent ? ' · explicit cache' : cached > 0 ? ' · implicit cache' : '';
+    const stepProvider: LlmProvider = step.model ? providerForModel(step.model) : 'google';
+    // Which cache path this round used: explicit if it referenced a cache resource, else the provider's
+    // automatic caching (labelled "auto" for auto-mode providers like Groq, "implicit" for Gemini).
+    const cacheTag = step.request?.cachedContent
+      ? ' · explicit cache'
+      : cached > 0
+        ? cachingMode(stepProvider) === 'auto'
+          ? ' · auto cache'
+          : ' · implicit cache'
+        : '';
     return (
       <View className="flex-row items-center gap-2 py-1">
         <View className="w-[18px] items-center">
@@ -977,7 +1013,7 @@ function StepRow({ step }: { step: TraceStep }) {
           )}
         </View>
         <Text className={`flex-1 font-body-md text-[12.5px] ${errored ? 'text-over' : 'text-ink3'}`}>
-          Gemini call {step.iteration + 1}
+          {PROVIDER_LABEL[stepProvider]} call {step.iteration + 1}
           {running ? '…' : errored ? ' — failed' : ''}
         </Text>
         {hasTokens ? (
@@ -1001,9 +1037,13 @@ function StepRow({ step }: { step: TraceStep }) {
           )}
         </View>
         <Text className="font-body text-[12.5px] text-ink3">
-          {step.settled
-            ? `Server hiccup — retried (attempt ${step.attempt})`
-            : `Server hiccup — retrying (attempt ${step.attempt})…`}
+          {step.status === 429
+            ? step.settled
+              ? `Rate limited — waited and retried (attempt ${step.attempt})`
+              : `Rate limited — waiting ${Math.ceil(step.delayMs / 1000)}s to retry…`
+            : step.settled
+              ? `Server hiccup — retried (attempt ${step.attempt})`
+              : `Server hiccup — retrying (attempt ${step.attempt})…`}
         </Text>
       </View>
     );
@@ -1088,10 +1128,10 @@ function NoKey({ onAdd }: { onAdd: () => void }) {
       <View className="w-[56px] h-[56px] rounded-2xl bg-[#EAF7EC] items-center justify-center mb-4">
         <IconSparkles size={28} color="#2F9E44" />
       </View>
-      <Text className="font-display-sb text-[18px] text-ink text-center mb-2">Add a Gemini key</Text>
+      <Text className="font-display-sb text-[18px] text-ink text-center mb-2">Add an API key</Text>
       <Text className="font-body text-[13.5px] text-ink2 text-center leading-5 mb-6 max-w-[300px]">
-        The assistant uses your own Google Gemini API key (free tier). Add it in Preferences to
-        start asking questions about your data.
+        Nico runs on your own API key from Google Gemini or Groq. Add one in Preferences to start
+        asking questions about your data.
       </Text>
       <Pressable
         onPress={onAdd}

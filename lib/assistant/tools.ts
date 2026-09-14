@@ -31,6 +31,7 @@ import { getCurrentUserId } from '@/lib/currentUser';
 import { addDaysISO, dateLabel, todayISO } from '@/lib/format';
 import { MEAL_TYPES, mealLabel } from '@/constants/meals';
 import type { MealType } from '@/constants/meals';
+import type { LlmToolDecl } from './provider';
 
 // ------------------------------------------------------------------ helpers
 
@@ -299,10 +300,11 @@ export async function runTool(name: string, args: unknown): Promise<unknown> {
   }
 }
 
-const STR = { type: 'STRING' as const };
+const STR = { type: 'string' as const };
 
-/** Gemini function declarations describing every tool above. */
-export const FUNCTION_DECLARATIONS = [
+/** Neutral (provider-agnostic) function declarations describing every read tool above. Each provider
+ * adapter converts these to its own wire dialect — see `providers/`. */
+export const FUNCTION_DECLARATIONS: LlmToolDecl[] = [
   {
     name: 'get_today',
     description:
@@ -316,7 +318,7 @@ export const FUNCTION_DECLARATIONS = [
     name: 'get_day_totals',
     description: 'Get total nutrition and cost logged on a single day, plus how it compares to the daily targets (remaining / over).',
     parameters: {
-      type: 'OBJECT',
+      type: 'object',
       properties: { date: { ...STR, description: 'Day as YYYY-MM-DD. Defaults to today if omitted.' } },
     },
   },
@@ -324,7 +326,7 @@ export const FUNCTION_DECLARATIONS = [
     name: 'list_day_logs',
     description: 'List every individual food entry logged on a single day, with grams, calories, protein and cost per entry.',
     parameters: {
-      type: 'OBJECT',
+      type: 'object',
       properties: { date: { ...STR, description: 'Day as YYYY-MM-DD. Defaults to today if omitted.' } },
     },
   },
@@ -333,7 +335,7 @@ export const FUNCTION_DECLARATIONS = [
     description:
       'Get total nutrition and cost logged across an inclusive date range, plus a per-day calorie/cost rollup and the average calories per logged day. Use for "this week", "this month", "last 7 days", etc.',
     parameters: {
-      type: 'OBJECT',
+      type: 'object',
       properties: {
         startDate: { ...STR, description: 'Start day (inclusive), YYYY-MM-DD.' },
         endDate: { ...STR, description: 'End day (inclusive), YYYY-MM-DD.' },
@@ -349,7 +351,7 @@ export const FUNCTION_DECLARATIONS = [
     name: 'get_meal_breakdown',
     description: 'Get the food items and total nutrition/cost of one saved meal template.',
     parameters: {
-      type: 'OBJECT',
+      type: 'object',
       properties: { mealId: { ...STR, description: 'The meal id from list_meals or list_meals_with_totals.' } },
       required: ['mealId'],
     },
@@ -363,7 +365,7 @@ export const FUNCTION_DECLARATIONS = [
     description:
       "Search the user's food catalog (their own + the shared catalog) by name or brand. Matching is tolerant — it ignores spacing, casing, punctuation and word order (so 'sunflower seeds' finds a food stored as 'sunflowerSeeds'), so use the user's natural wording and do NOT retry with alternate spellings if nothing comes back. A search term returns per-100 g/ml nutrition and price for the matches (capped). An EMPTY string lists the catalog names only (no nutrition). Every result includes `total` (the true number of matching foods) and `truncated` (true when there are more than returned) — so state `total`, never the returned count, when saying how many foods there are. To let the user BROWSE or SEE their whole list, call open_food_catalog instead of listing rows here.",
     parameters: {
-      type: 'OBJECT',
+      type: 'object',
       properties: { query: { ...STR, description: 'Text to match against food names/brands (spacing, case, punctuation and word order are ignored). Empty string lists the catalog (names only).' } },
       required: ['query'],
     },
@@ -658,17 +660,17 @@ const MEAL_TYPE_DESC = `One of: ${MEAL_TYPES.map((m) => m.key).join(', ')}.`;
 // when the user didn't say which meal — the app asks them — rather than guessing one.
 const OPT_MEAL_TYPE_DESC = `Which meal: ${MEAL_TYPES.map((m) => m.key).join(', ')}. Omit entirely if the user didn't say which — never guess a meal.`;
 
-/** Gemini function declarations for the write tools — merged with the read set in gemini.ts. */
-export const WRITE_FUNCTION_DECLARATIONS = [
+/** Neutral function declarations for the write tools — merged with the read set below. */
+export const WRITE_FUNCTION_DECLARATIONS: LlmToolDecl[] = [
   {
     name: 'log_food',
     description:
       "Log a food into the user's daily log. Requires a foodId from search_foods. Proposes the entry for the user to confirm — do NOT claim it is logged until they approve.",
     parameters: {
-      type: 'OBJECT',
+      type: 'object',
       properties: {
         foodId: { ...STR, description: 'The food id from search_foods.' },
-        grams: { type: 'NUMBER' as const, description: 'Amount to log, in grams/ml. Must be > 0.' },
+        grams: { type: 'number' as const, description: 'Amount to log, in grams/ml. Must be > 0.' },
         mealType: { ...STR, description: OPT_MEAL_TYPE_DESC },
         date: { ...STR, description: 'Day to log to, YYYY-MM-DD. Defaults to today if omitted.' },
       },
@@ -680,10 +682,10 @@ export const WRITE_FUNCTION_DECLARATIONS = [
     description:
       'Change the grams and/or meal type of an existing daily log entry. Requires a logId from list_day_logs. Proposes the change for the user to confirm.',
     parameters: {
-      type: 'OBJECT',
+      type: 'object',
       properties: {
         logId: { ...STR, description: 'The entry id (logId) from list_day_logs.' },
-        grams: { type: 'NUMBER' as const, description: 'New amount in grams/ml (optional). Must be > 0.' },
+        grams: { type: 'number' as const, description: 'New amount in grams/ml (optional). Must be > 0.' },
         mealType: { ...STR, description: `New meal type (optional). ${MEAL_TYPE_DESC}` },
       },
       required: ['logId'],
@@ -694,7 +696,7 @@ export const WRITE_FUNCTION_DECLARATIONS = [
     description:
       'Remove an entry from the daily log. Requires a logId from list_day_logs. Proposes the removal for the user to confirm.',
     parameters: {
-      type: 'OBJECT',
+      type: 'object',
       properties: { logId: { ...STR, description: 'The entry id (logId) from list_day_logs.' } },
       required: ['logId'],
     },
@@ -704,7 +706,7 @@ export const WRITE_FUNCTION_DECLARATIONS = [
     description:
       "Add every item of one saved meal template to a day's log at once. Requires a mealId from list_meals. Proposes the action for the user to confirm.",
     parameters: {
-      type: 'OBJECT',
+      type: 'object',
       properties: {
         mealId: { ...STR, description: 'The meal id from list_meals or list_meals_with_totals.' },
         mealType: { ...STR, description: OPT_MEAL_TYPE_DESC },
@@ -713,4 +715,14 @@ export const WRITE_FUNCTION_DECLARATIONS = [
       required: ['mealId'],
     },
   },
+];
+
+/**
+ * The full tool set the model sees each round — read tools + write tools. Writes still can't run
+ * without the user confirming the card the agent loop pauses on (see `agent.ts`). Provider adapters
+ * convert this neutral list to their own wire dialect.
+ */
+export const ALL_FUNCTION_DECLARATIONS: LlmToolDecl[] = [
+  ...FUNCTION_DECLARATIONS,
+  ...WRITE_FUNCTION_DECLARATIONS,
 ];

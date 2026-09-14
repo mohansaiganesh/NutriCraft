@@ -1,5 +1,5 @@
 /**
- * Per-user storage for the Gemini model the user picks in Settings.
+ * Per-user storage for the model (any provider) the user picks in the chat.
  *
  * Unlike the API key, the model id is NOT a secret, so it lives in AsyncStorage (the same
  * lightweight per-user preference store used for sync cursors in `lib/sync.ts`) — NOT in
@@ -8,7 +8,7 @@
  * Keyed per user so switching accounts on the same device switches the choice.
  */
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DEFAULT_MODEL } from './gemini';
+import { DEFAULT_MODEL } from './models';
 
 const keyFor = (userId: string) => `nutricraft-llm-model-${userId}`;
 

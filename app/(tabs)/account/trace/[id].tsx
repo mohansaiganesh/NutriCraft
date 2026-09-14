@@ -12,6 +12,7 @@ import { IconCheck, IconChevronDown, IconChevronRight, IconSparkles, IconX } fro
 import { parseMarkdown } from '@/lib/assistant/markdown';
 import { previewJson } from '@/lib/assistant/events';
 import type { TraceStep } from '@/lib/assistant/events';
+import { cachingMode, providerForModel } from '@/lib/assistant/models';
 
 const STATUS: Record<string, { label: string; fg: string }> = {
   ok: { label: 'OK', fg: '#1B5E2A' },
@@ -36,9 +37,17 @@ function ModelStepCard({ step }: { step: Extract<TraceStep, { kind: 'model' }> }
   const errored = step.status === 'error';
   const req = step.request;
   const cached = step.cachedTokens ?? 0;
-  // Explicit if this round referenced a cachedContents resource; else implicit when a cached prefix
-  // was reported. Shown so the source of any saving is unambiguous.
-  const cacheTag = req?.cachedContent ? ' · explicit cache' : cached > 0 ? ' · implicit cache' : '';
+  // Explicit if this round referenced a cache resource; else the provider's automatic caching
+  // ("auto" for auto-mode providers like Groq, "implicit" for Gemini). Shown so the source of any
+  // saving is unambiguous.
+  const stepProvider = step.model ? providerForModel(step.model) : 'google';
+  const cacheTag = req?.cachedContent
+    ? ' · explicit cache'
+    : cached > 0
+      ? cachingMode(stepProvider) === 'auto'
+        ? ' · auto cache'
+        : ' · implicit cache'
+      : '';
   return (
     <Card className="gap-1.5 py-3">
       <Pressable onPress={() => setOpen((v) => !v)} className="flex-row items-center gap-2 active:opacity-70">
@@ -59,7 +68,8 @@ function ModelStepCard({ step }: { step: Extract<TraceStep, { kind: 'model' }> }
       </Pressable>
       <Text className="ml-[28px] font-body-md text-[11.5px] text-ink3">
         {step.model ?? '—'} · {ms(step.durationMs)} · {(step.inputTokens ?? 0).toLocaleString()} in /{' '}
-        {(step.outputTokens ?? 0).toLocaleString()} out · {cached.toLocaleString()} cached{cacheTag}
+        {(step.outputTokens ?? 0).toLocaleString()} out · {cached.toLocaleString()} of{' '}
+        {(step.inputTokens ?? 0).toLocaleString()} in cached{cacheTag}
         {step.finishReason ? ` · ${step.finishReason}` : ''}
       </Text>
       {open ? (
@@ -69,6 +79,12 @@ function ModelStepCard({ step }: { step: Extract<TraceStep, { kind: 'model' }> }
               <DataBlock label="System instruction" text={req.systemInstruction} markdown />
               <DataBlock label="Contents sent" text={previewJson(req.contents, 8000)} />
               <DataBlock label="Tools" text={req.toolNames.join(', ')} />
+              {req.prefixHash ? (
+                <DataBlock
+                  label="Prefix fingerprint"
+                  text={`${req.prefixHash} — same value on every round ⇒ system prompt + tools are byte-identical (cacheable)`}
+                />
+              ) : null}
               <DataBlock label="Generation config" text={req.generationConfig ? previewJson(req.generationConfig) : 'defaults (none sent)'} />
               {req.cachedContent ? <DataBlock label="Cached content" text={req.cachedContent} /> : null}
             </>
@@ -151,7 +167,8 @@ function RetryStepCard({ step }: { step: Extract<TraceStep, { kind: 'retry' }> }
       <View className="flex-row items-center gap-2">
         <View className="w-2 h-2 rounded-full bg-[#C2820A] ml-1.5" />
         <Text className="flex-1 font-body-md text-[12.5px] text-ink3">
-          Server hiccup — retried (attempt {step.attempt}, HTTP {step.status})
+          {step.status === 429 ? 'Rate limited — waited and retried' : 'Server hiccup — retried'} (attempt{' '}
+          {step.attempt}, HTTP {step.status})
         </Text>
       </View>
     </Card>
@@ -227,7 +244,7 @@ export default function TraceDetailScreen() {
               <Meta label="Tool calls" value={String(trace.toolCalls)} />
               <Meta
                 label="Tokens"
-                value={`${trace.inputTokens.toLocaleString()} in / ${trace.outputTokens.toLocaleString()} out (${trace.cachedTokens.toLocaleString()} cached)`}
+                value={`${trace.inputTokens.toLocaleString()} in / ${trace.outputTokens.toLocaleString()} out (${trace.cachedTokens.toLocaleString()} of the input cached)`}
               />
               <Meta label="Duration" value={ms(trace.durationMs)} />
               <Meta label="Started" value={new Date(trace.startedAt).toLocaleString()} />

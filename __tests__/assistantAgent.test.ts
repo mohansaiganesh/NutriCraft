@@ -11,9 +11,11 @@
 // Quieten agent.ts's __DEV__ console logging during the run.
 (globalThis as any).__DEV__ = false;
 
-jest.mock('@/lib/assistant/gemini', () => ({
-  callGemini: jest.fn(),
-  ALL_FUNCTION_DECLARATIONS: [{ name: 'log_food' }, { name: 'search_foods' }],
+// The agent reaches the model through the provider registry (clients.ts). Mock that seam — a fake
+// client whose `call` is a jest.fn — so this runs without any real provider or the network. The real
+// models.ts (pure) resolves 'gemini-*' → provider 'google'.
+jest.mock('@/lib/assistant/clients', () => ({
+  getClient: jest.fn(),
 }));
 
 jest.mock('@/lib/assistant/tools', () => ({
@@ -49,6 +51,7 @@ jest.mock('@/lib/assistant/tools', () => ({
   executeWrite: jest.fn(async () => ({ logId: 'new-log' })),
   runTool: jest.fn(async () => ({})),
   NAV_TOOLS: { open_food_catalog: { pathname: '/(tabs)/foods', label: 'Open Foods catalog' } },
+  ALL_FUNCTION_DECLARATIONS: [{ name: 'log_food' }, { name: 'search_foods' }],
 }));
 
 // Deterministic step ids keep the loop off any crypto/RN dependency.
@@ -58,10 +61,12 @@ jest.mock('@/lib/id', () => {
 });
 
 import { runAssistant } from '@/lib/assistant/agent';
-import { callGemini } from '@/lib/assistant/gemini';
+import { getClient } from '@/lib/assistant/clients';
 import { executeWrite, reviseWrite } from '@/lib/assistant/tools';
 
-const mockCall = callGemini as unknown as jest.Mock;
+// The single model-call mock, handed to the agent as the fake client's `call`.
+const mockCall = jest.fn();
+const mockGetClient = getClient as unknown as jest.Mock;
 const mockExecute = executeWrite as unknown as jest.Mock;
 const mockRevise = reviseWrite as unknown as jest.Mock;
 
@@ -69,20 +74,29 @@ const mockRevise = reviseWrite as unknown as jest.Mock;
 // model round), so the mocked describeWrite/reviseWrite donePhrases drive res.text below.
 const SUMMARY = "I'll add dates and rice to your breakfast.";
 
+// Neutral response parts (provider-agnostic), as the client adapters produce.
 const logCall = (foodId: string, grams: number) => ({
-  functionCall: { name: 'log_food', args: { foodId, grams, mealType: 'breakfast' } },
+  type: 'toolCall' as const,
+  name: 'log_food',
+  args: { foodId, grams, mealType: 'breakfast' },
 });
-const textRound = (text: string) => ({ ok: true, parts: [{ text }], usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8, cachedTokens: 0 } });
+const textRound = (text: string) => ({
+  ok: true,
+  parts: [{ type: 'text' as const, text }],
+  usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8, cachedTokens: 0 },
+});
 
 beforeEach(() => {
   jest.clearAllMocks();
   mockCall.mockReset();
+  // Every provider resolves to the same fake client for these tests.
+  mockGetClient.mockReturnValue({ provider: 'google', call: mockCall });
 });
 
 describe('runAssistant: single confirmation for staged writes', () => {
   it('confirms ONCE when the model batches all writes into one turn', async () => {
     mockCall
-      .mockResolvedValueOnce({ ok: true, parts: [{ text: SUMMARY }, logCall('dates', 45), logCall('rice', 100)] }) // stage both
+      .mockResolvedValueOnce({ ok: true, parts: [{ type: 'text', text: SUMMARY }, logCall('dates', 45), logCall('rice', 100)] }) // stage both
       .mockResolvedValueOnce(textRound(SUMMARY)); // terminal: closing summary, no calls → card
 
     const onConfirm = jest.fn(async (_req: any) => ({ kind: 'approve' as const }));
@@ -189,7 +203,7 @@ describe('runAssistant: single confirmation for staged writes', () => {
   it('stages a meal-less log and applies the meal the user picks in the card', async () => {
     // Model logs 20 g of oats WITHOUT a meal (the new schema lets it omit mealType).
     mockCall
-      .mockResolvedValueOnce({ ok: true, parts: [{ functionCall: { name: 'log_food', args: { foodId: 'oats', grams: 20 } } }] })
+      .mockResolvedValueOnce({ ok: true, parts: [{ type: 'toolCall', name: 'log_food', args: { foodId: 'oats', grams: 20 } }] })
       .mockResolvedValueOnce(textRound(SUMMARY)); // terminal → card
 
     // The card reaches the user with the meal unset, then they pick "dinner".
@@ -232,7 +246,7 @@ describe('runAssistant: single confirmation for staged writes', () => {
 
   it('surfaces a navigation target when a NAV_TOOLS read runs (the Foods handoff)', async () => {
     mockCall
-      .mockResolvedValueOnce({ ok: true, parts: [{ functionCall: { name: 'open_food_catalog', args: {} } }] }) // request the handoff
+      .mockResolvedValueOnce({ ok: true, parts: [{ type: 'toolCall', name: 'open_food_catalog', args: {} }] }) // request the handoff
       .mockResolvedValueOnce(textRound('You have 140 foods.')); // terminal answer, no calls
 
     const res = await runAssistant({
@@ -250,5 +264,33 @@ describe('runAssistant: single confirmation for staged writes', () => {
       expect(res.navigation).toEqual({ pathname: '/(tabs)/foods', label: 'Open Foods catalog' });
     }
     expect(mockExecute).not.toHaveBeenCalled();
+  });
+});
+
+describe('runAssistant: cacheable prompt prefix', () => {
+  it('sends a byte-identical prefix every round, with the dynamic date LAST', async () => {
+    mockCall
+      .mockResolvedValueOnce({ ok: true, parts: [{ type: 'toolCall', name: 'search_foods', args: { query: 'rice' } }] })
+      .mockResolvedValueOnce(textRound('You have rice.'));
+
+    const steps: any[] = [];
+    await runAssistant({
+      question: 'do I have rice?',
+      history: [],
+      apiKey: 'k',
+      model: 'gemini-3.6-flash',
+      onEvent: (s) => steps.push(s),
+    });
+
+    const hashes = new Set(steps.filter((s) => s.kind === 'model').map((s) => s.request.prefixHash));
+    expect(hashes.size).toBe(1);
+    expect([...hashes][0]).toEqual(expect.any(String));
+
+    const prompts = mockCall.mock.calls.map((c) => c[0].systemInstruction);
+    expect(prompts).toHaveLength(2);
+    expect(prompts[1]).toBe(prompts[0]);
+    // The only per-day text sits at the very end, so everything before it stays a stable cache prefix.
+    expect(prompts[0]).toMatch(/Context:\nToday's date is [^\n]+\. The current year is \d{4}\.$/);
+    expect(prompts[0].indexOf("Today's date")).toBeGreaterThan(prompts[0].indexOf('Rules:'));
   });
 });

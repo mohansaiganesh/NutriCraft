@@ -530,7 +530,8 @@ function Welcome({ onPick, disabled }: { onPick: (t: string) => void; disabled: 
         {firstName ? `Hi ${firstName}, I'm Nico` : "Hi, I'm Nico"}
       </Text>
       <Text className="font-body text-[13px] text-ink2 text-center max-w-[260px] mb-5">
-        I can help with what you&apos;ve logged — your meals, macros and costs. Just ask.
+        I can log foods, adjust or remove entries, and answer questions about your meals, macros
+        and costs. Just ask.
       </Text>
       <View className="flex-row flex-wrap justify-center px-4">
         {STARTERS.map((s) => (

@@ -22,7 +22,7 @@ jest.mock('@/lib/currentUser', () => ({
   requireUserId: () => 'user-1',
 }));
 
-import { describeWrite, executeWrite, isWriteTool, reviseWrite } from '@/lib/assistant/tools';
+import { describeWrite, executeWrite, isWriteTool, reviseWrite, FUNCTION_DECLARATIONS, NAV_TOOLS } from '@/lib/assistant/tools';
 import * as queries from '@/db/queries';
 
 const mockQueries = queries as unknown as Record<string, jest.Mock>;
@@ -40,6 +40,20 @@ describe('isWriteTool', () => {
     expect(isWriteTool('apply_meal_to_day')).toBe(true);
     expect(isWriteTool('get_day_totals')).toBe(false);
     expect(isWriteTool('nope')).toBe(false);
+  });
+});
+
+describe('navigation handoffs (NAV_TOOLS wiring)', () => {
+  it('maps the Meals handoff to the Meals screen', () => {
+    expect(NAV_TOOLS.open_meals).toEqual({ pathname: '/(tabs)/meals', label: 'Open Meals' });
+  });
+
+  it('keeps the existing Foods handoff', () => {
+    expect(NAV_TOOLS.open_food_catalog).toEqual({ pathname: '/(tabs)/foods', label: 'Open Foods catalog' });
+  });
+
+  it('declares open_meals so the model can call it', () => {
+    expect(FUNCTION_DECLARATIONS.some((d) => d.name === 'open_meals')).toBe(true);
   });
 });
 

@@ -262,6 +262,15 @@ async function openFoodCatalog() {
   return { opened: true, total: rows.length };
 }
 
+/**
+ * Not a data question — a UI handoff, twin of openFoodCatalog. Returns the saved-meal count so the
+ * model can state it; the navigation to the Meals screen is performed by the app (NAV_TOOLS below).
+ */
+async function openMeals() {
+  const rows = await mealsQuery();
+  return { opened: true, total: rows.length };
+}
+
 // ------------------------------------------------------------------ registry + declarations
 
 type Tool = { run: (args: any) => Promise<unknown> };
@@ -277,6 +286,7 @@ export const TOOLS: Record<string, Tool> = {
   list_meals_with_totals: { run: listMealsWithTotals },
   search_foods: { run: searchFoods },
   open_food_catalog: { run: openFoodCatalog },
+  open_meals: { run: openMeals },
 };
 
 /**
@@ -287,6 +297,7 @@ export const TOOLS: Record<string, Tool> = {
  */
 export const NAV_TOOLS: Record<string, { pathname: string; label: string }> = {
   open_food_catalog: { pathname: '/(tabs)/foods', label: 'Open Foods catalog' },
+  open_meals: { pathname: '/(tabs)/meals', label: 'Open Meals' },
 };
 
 /** Run a tool by name; returns a JSON-serialisable result or an { error } object. */
@@ -373,7 +384,12 @@ export const FUNCTION_DECLARATIONS: LlmToolDecl[] = [
   {
     name: 'open_food_catalog',
     description:
-      "Open the Foods screen so the user can browse and search their COMPLETE food list. Use whenever the user wants to SEE, view, browse, or scroll through all their foods (e.g. 'show me all my foods', 'let me see my food list') rather than asking a specific question you can answer with search_foods. Returns the total number of foods — tell the user that count. The app shows the user a button that opens the catalog, so do NOT claim you have opened or navigated anywhere yourself.",
+      "Open the Foods screen so the user can browse and search their COMPLETE food list. Use whenever the user wants to SEE, view, browse, or scroll through all their foods (e.g. 'show me all my foods', 'let me see my food list'), OR when the user asks to CREATE or EDIT a food (which you cannot do yourself) — so they get a button to the Foods screen where they can. Returns the total number of foods. The app shows the user a button that opens the screen, so do NOT claim you have opened or navigated anywhere yourself.",
+  },
+  {
+    name: 'open_meals',
+    description:
+      "Open the Meals screen. Use whenever the user wants to SEE, view, or browse their saved meals, OR when the user asks to CREATE, rename, or EDIT a meal or its items (which you cannot do yourself) — so they get a button to the Meals screen where they can. Returns the total number of saved meals. The app shows the user a button that opens the screen, so do NOT claim you have opened or navigated anywhere yourself.",
   },
 ];
 

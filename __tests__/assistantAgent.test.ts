@@ -50,7 +50,10 @@ jest.mock('@/lib/assistant/tools', () => ({
   }),
   executeWrite: jest.fn(async () => ({ logId: 'new-log' })),
   runTool: jest.fn(async () => ({})),
-  NAV_TOOLS: { open_food_catalog: { pathname: '/(tabs)/foods', label: 'Open Foods catalog' } },
+  NAV_TOOLS: {
+    open_food_catalog: { pathname: '/(tabs)/foods', label: 'Open Foods catalog' },
+    open_meals: { pathname: '/(tabs)/meals', label: 'Open Meals' },
+  },
   ALL_FUNCTION_DECLARATIONS: [{ name: 'log_food' }, { name: 'search_foods' }],
 }));
 
@@ -262,6 +265,26 @@ describe('runAssistant: single confirmation for staged writes', () => {
     if (res.ok) {
       expect(res.text).toBe('You have 140 foods.');
       expect(res.navigation).toEqual({ pathname: '/(tabs)/foods', label: 'Open Foods catalog' });
+    }
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+
+  it('surfaces the Meals handoff when open_meals runs (asked to create/edit a meal it cannot)', async () => {
+    mockCall
+      .mockResolvedValueOnce({ ok: true, parts: [{ type: 'toolCall', name: 'open_meals', args: {} }] }) // request the handoff
+      .mockResolvedValueOnce(textRound("I can't create meals myself, but you can add one on the Meals screen.")); // terminal answer, no calls
+
+    const res = await runAssistant({
+      question: 'create a breakfast meal',
+      history: [],
+      apiKey: 'k',
+      model: 'gemini-3.6-flash',
+      onConfirm: jest.fn(async () => ({ kind: 'approve' as const })),
+    });
+
+    expect(res.ok).toBe(true);
+    if (res.ok) {
+      expect(res.navigation).toEqual({ pathname: '/(tabs)/meals', label: 'Open Meals' });
     }
     expect(mockExecute).not.toHaveBeenCalled();
   });

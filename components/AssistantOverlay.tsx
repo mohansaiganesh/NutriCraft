@@ -254,14 +254,18 @@ export function AssistantOverlay() {
     send(t);
   };
 
+  // withAnchor: this overlay is mounted at the root layout, outside the (tabs) navigator, so
+  // pushing into the account stack crosses navigators. Without withAnchor the account stack's
+  // anchor (index) is skipped and the pushed screen becomes the stack's base — back would fall
+  // through to the previous tab and the Account tab icon would reopen this screen.
   const goToSettings = () => {
     setOpen(false);
-    router.push('/(tabs)/account/assistant');
+    router.push('/(tabs)/account/assistant', { withAnchor: true });
   };
 
   const goToHistory = () => {
     setOpen(false);
-    router.push('/(tabs)/account/traces');
+    router.push('/(tabs)/account/traces', { withAnchor: true });
   };
 
   // Follow a nav button on an answer bubble (e.g. "Open Foods catalog") — close the panel, then

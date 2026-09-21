@@ -47,6 +47,8 @@ yarn-error.*
 AGENTS.md
 CLAUDE.md
 
+.claude
+
 design/
 
 assets/references/

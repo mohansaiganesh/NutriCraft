@@ -45,18 +45,17 @@
 
 <h2 id="live-demo">🎬 Project Demo</h2>
 
-<p align="center">
+<div align="center">
   <video
-    src="https://github.com/mohansaiganesh/NutriCraft/raw/main/assets/demo.mp4"
-    poster="https://github.com/mohansaiganesh/NutriCraft/raw/main/assets/poster.png"
+    src="https://github.com/user-attachments/assets/843a0885-cc4f-4ffc-97d3-ef550f1e78e2"
     controls
     width="270"
     height="600">
     Your browser can't play embedded video.
     <a href="https://www.youtube.com/watch?v=CsK3mctQVyk">Watch the demo on YouTube</a>.
   </video>
-</p>
-<p align="center">▶️ Video not loading? <a href="https://www.youtube.com/watch?v=CsK3mctQVyk">Watch it on YouTube</a>.</p>
+</div>
+<p align="center">▶️ Video not loading or want higher resolution? <a href="https://www.youtube.com/watch?v=CsK3mctQVyk">Watch it on YouTube</a>.</p>
 
 <img src="https://capsule-render.vercel.app/api?type=rect&height=2&color=gradient&customColorList=F97316,FB923C" width="100%" alt="">
 
@@ -67,7 +66,7 @@
 4. [Architecture](#architecture)  
 5. [Getting Started](#getting-started)  
 6. [Project Structure](#project-structure)  
-7. [Screenshots / Demo](#screenshots-demo)  
+7. [Screenshots](#screenshots)  
 8. [Usage](#usage)  
 9. [Challenges & Learnings](#challenges-learnings)  
 10. [Future Enhancements](#future-enhancements)  
@@ -339,7 +338,7 @@ replace the placeholder package `com.anonymous.nutricraft`.
 
 <img src="https://capsule-render.vercel.app/api?type=rect&height=2&color=gradient&customColorList=F97316,FB923C" width="100%" alt="">
 
-<h2 id="screenshots-demo">7. 🖼 Screenshots</h2>
+<h2 id="screenshots">7. 🖼 Screenshots</h2>
 
 <table align="center">
   <tr>

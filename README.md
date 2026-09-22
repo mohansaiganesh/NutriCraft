@@ -47,8 +47,8 @@
 
 <p align="center">
   <video
-    src="https://raw.githubusercontent.com/mohansaiganesh/NutriCraft/main/assets/demo.mp4"
-    poster="https://raw.githubusercontent.com/mohansaiganesh/NutriCraft/main/assets/poster.png"
+    src="https://github.com/mohansaiganesh/NutriCraft/raw/main/assets/demo.mp4"
+    poster="https://github.com/mohansaiganesh/NutriCraft/raw/main/assets/poster.png"
     controls
     width="270"
     height="600">
